@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kacperpaczos/agents/tool"
+	"github.com/dntatme/agents/tool"
 )
 
 // AddComponentTool returns a tool that adds a component to the app design.

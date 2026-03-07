@@ -8,9 +8,9 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/kacperpaczos/agents/conversation"
-	"github.com/kacperpaczos/agents/termination"
-	"github.com/kacperpaczos/agents/tool"
+	"github.com/dntatme/agents/conversation"
+	"github.com/dntatme/agents/termination"
+	"github.com/dntatme/agents/tool"
 )
 
 // HandoffResult is returned when the model calls transfer_to_agent.

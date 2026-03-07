@@ -9,7 +9,9 @@
       "Bash(go env:*)",
       "Bash(go test:*)",
       "Bash(go build:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''E:\\\\Github projects\\\\agents'' -Recurse -Include ''*.go'',''go.mod'' | ForEach-Object { $content = Get-Content -Path $_FullName -Raw; if \\($content -match ''kacperpaczos''\\) { $content -replace ''kacperpaczos'',''dntatme'' | Set-Content -Path $_FullName -NoNewline } }\")",
+      "Bash(powershell -ExecutionPolicy Bypass -File:*)"
     ]
   }
 }

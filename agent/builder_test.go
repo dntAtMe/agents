@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/kacperpaczos/agents/prompt"
-	"github.com/kacperpaczos/agents/termination"
-	"github.com/kacperpaczos/agents/tool"
+	"github.com/dntatme/agents/prompt"
+	"github.com/dntatme/agents/termination"
+	"github.com/dntatme/agents/tool"
 
 	"google.golang.org/genai"
 )

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kacperpaczos/agents/conversation"
-	"github.com/kacperpaczos/agents/llm"
+	"github.com/dntatme/agents/conversation"
+	"github.com/dntatme/agents/llm"
 )
 
 // OrchestratorConfig controls multi-agent orchestration.

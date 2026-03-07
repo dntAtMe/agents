@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/kacperpaczos/agents/conversation"
+	"github.com/dntatme/agents/conversation"
 )
 
 // HookContext is passed to all hooks with read/write access to the current run.

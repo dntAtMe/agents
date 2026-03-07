@@ -11,10 +11,10 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/kacperpaczos/agents/agent"
-	"github.com/kacperpaczos/agents/capabilities/weather"
-	"github.com/kacperpaczos/agents/llm"
-	"github.com/kacperpaczos/agents/prompt"
+	"github.com/dntatme/agents/agent"
+	"github.com/dntatme/agents/capabilities/weather"
+	"github.com/dntatme/agents/llm"
+	"github.com/dntatme/agents/prompt"
 )
 
 func main() {

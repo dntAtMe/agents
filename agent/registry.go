@@ -3,7 +3,7 @@ package agent
 import (
 	"fmt"
 
-	"github.com/kacperpaczos/agents/tool"
+	"github.com/dntatme/agents/tool"
 )
 
 // Registry stores agents by name.

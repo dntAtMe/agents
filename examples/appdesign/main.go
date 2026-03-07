@@ -13,10 +13,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/kacperpaczos/agents/agent"
-	"github.com/kacperpaczos/agents/capabilities/appdesign"
-	"github.com/kacperpaczos/agents/llm"
-	"github.com/kacperpaczos/agents/prompt"
+	"github.com/dntatme/agents/agent"
+	"github.com/dntatme/agents/capabilities/appdesign"
+	"github.com/dntatme/agents/llm"
+	"github.com/dntatme/agents/prompt"
 )
 
 func main() {

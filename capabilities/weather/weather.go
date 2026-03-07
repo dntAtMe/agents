@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/kacperpaczos/agents/tool"
+	"github.com/dntatme/agents/tool"
 )
 
 // GetWeatherTool returns a tool that looks up simulated weather data for a city.

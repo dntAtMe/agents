@@ -1,4 +1,4 @@
-module github.com/kacperpaczos/agents
+module github.com/dntatme/agents
 
 go 1.24
 

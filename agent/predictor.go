@@ -5,7 +5,7 @@ import (
 
 	"google.golang.org/genai"
 
-	"github.com/kacperpaczos/agents/llm"
+	"github.com/dntatme/agents/llm"
 )
 
 // PredictRequest holds the inputs for a prediction call.
