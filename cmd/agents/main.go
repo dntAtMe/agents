@@ -6,11 +6,9 @@ import (
 	"os"
 	"strings"
 
-	"google.golang.org/genai"
-
 	"github.com/kacperpaczos/agents/agent"
+	"github.com/kacperpaczos/agents/capabilities/weather"
 	"github.com/kacperpaczos/agents/llm"
-	"github.com/kacperpaczos/agents/tool"
 )
 
 func main() {
@@ -34,62 +32,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Define tools ---
-	weatherTool := &tool.FuncTool{
-		Decl: &genai.FunctionDeclaration{
-			Name:        "get_weather",
-			Description: "Get the current weather for a city.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"city": {
-						Type:        genai.TypeString,
-						Description: "The city name.",
-					},
-				},
-				Required: []string{"city"},
-			},
-		},
-		Fn: func(_ context.Context, args map[string]any) (map[string]any, error) {
-			city, _ := args["city"].(string)
-			// Stub response for demo purposes.
-			return map[string]any{
-				"city":        city,
-				"temperature": "15°C",
-				"condition":   "Partly cloudy",
-				"humidity":    "62%",
-			}, nil
-		},
-	}
-
-	// --- Build agent registry ---
 	registry := agent.NewRegistry()
 
-	// Weather specialist agent.
-	weatherTools := tool.NewRegistry()
-	weatherTools.Register(weatherTool)
+	registry.Register(agent.New("weather").
+		SystemPrompt("You are a weather specialist. Use the get_weather tool to look up weather information and provide a helpful summary to the user.").
+		Tool(weather.GetWeatherTool()).
+		Build())
 
-	registry.Register(&agent.Agent{
-		Name:              "weather",
-		Model:             "gemini-2.0-flash",
-		SystemPrompt:      "You are a weather specialist. Use the get_weather tool to look up weather information and provide a helpful summary to the user.",
-		Tools:             weatherTools,
-		TerminationPolicy: agent.DefaultTermination(),
-	})
+	registry.Register(agent.New("triage").
+		SystemPrompt("You are a triage agent. If the user asks about weather, transfer to the \"weather\" agent using the transfer_to_agent tool. Otherwise, answer directly.").
+		HandoffTo("weather").
+		Build())
 
-	// Triage agent that can hand off to weather.
-	triageTools := tool.NewRegistry()
-	triageTools.Register(tool.NewTransferTool([]string{"weather"}))
+	if err := registry.Finalize(); err != nil {
+		fmt.Fprintf(os.Stderr, "Registry error: %v\n", err)
+		os.Exit(1)
+	}
 
-	registry.Register(&agent.Agent{
-		Name:              "triage",
-		Model:             "gemini-2.0-flash",
-		SystemPrompt:      "You are a triage agent. If the user asks about weather, transfer to the \"weather\" agent using the transfer_to_agent tool. Otherwise, answer directly.",
-		Tools:             triageTools,
-		TerminationPolicy: agent.DefaultTermination(),
-	})
-
-	// --- Orchestrate ---
 	result, err := agent.Orchestrate(ctx, client, registry, "triage", prompt, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

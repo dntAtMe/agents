@@ -1,4 +1,4 @@
-// Package main demonstrates a multi-agent weather example.
+// Package main demonstrates a multi-agent weather example with hooks and prompt builder.
 //
 // Run with: GEMINI_API_KEY=... go run ./examples/weather "What's the weather in London?"
 package main
@@ -12,9 +12,9 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kacperpaczos/agents/agent"
+	"github.com/kacperpaczos/agents/capabilities/weather"
 	"github.com/kacperpaczos/agents/llm"
 	"github.com/kacperpaczos/agents/prompt"
-	"github.com/kacperpaczos/agents/tool"
 )
 
 func main() {
@@ -37,77 +37,40 @@ func main() {
 		os.Exit(1)
 	}
 
-	// --- Tools ---
-	getWeather := &tool.FuncTool{
-		Decl: &genai.FunctionDeclaration{
-			Name:        "get_weather",
-			Description: "Get the current weather for a given city.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
-					"city": {
-						Type:        genai.TypeString,
-						Description: "City name, e.g. 'London'.",
-					},
-				},
-				Required: []string{"city"},
-			},
-		},
-		Fn: func(_ context.Context, args map[string]any) (map[string]any, error) {
-			city, _ := args["city"].(string)
-			// Simulated weather data.
-			data := map[string]map[string]any{
-				"london":    {"temperature": "15°C", "condition": "Rainy", "humidity": "80%"},
-				"new york":  {"temperature": "22°C", "condition": "Sunny", "humidity": "45%"},
-				"tokyo":     {"temperature": "18°C", "condition": "Cloudy", "humidity": "70%"},
-			}
-			if w, ok := data[strings.ToLower(city)]; ok {
-				w["city"] = city
-				return w, nil
-			}
-			return map[string]any{
-				"city":        city,
-				"temperature": "20°C",
-				"condition":   "Unknown",
-				"humidity":    "50%",
-			}, nil
-		},
-	}
-
-	// --- Agents ---
 	registry := agent.NewRegistry()
 
-	weatherTools := tool.NewRegistry()
-	weatherTools.Register(getWeather)
-
-	registry.Register(&agent.Agent{
-		Name:  "weather",
-		Model: "gemini-2.0-flash",
-		PromptBuilder: prompt.NewBuilder().
+	registry.Register(agent.New("weather").
+		PromptBuilder(prompt.NewBuilder().
 			Add(prompt.Identity("You are a friendly weather assistant.")).
 			Add(prompt.ToolUsage("Use the get_weather tool to look up weather data for the requested city.")).
-			Add(prompt.OutputFormat("Give a concise, helpful summary of the weather conditions.")),
-		Tools:             weatherTools,
-		TerminationPolicy: agent.DefaultTermination(),
-	})
+			Add(prompt.OutputFormat("Give a concise, helpful summary of the weather conditions."))).
+		Tool(weather.GetWeatherTool()).
+		Hooks(&agent.Hooks{
+			AfterToolCall: func(_ context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+				if fc.Name == "get_weather" && result["city"] != nil {
+					hc.State["last_weather_city"] = result["city"]
+				}
+				return nil
+			},
+		}).
+		Build())
 
-	triageTools := tool.NewRegistry()
-	triageTools.Register(tool.NewTransferTool([]string{"weather"}))
-
-	registry.Register(&agent.Agent{
-		Name:  "triage",
-		Model: "gemini-2.0-flash",
-		PromptBuilder: prompt.NewBuilder().
+	registry.Register(agent.New("triage").
+		PromptBuilder(prompt.NewBuilder().
 			Add(prompt.Identity("You are a triage agent.")).
-			Add(prompt.HandoffPolicy("Route weather questions to the 'weather' agent using transfer_to_agent. For other questions, answer directly.")),
-		Tools:             triageTools,
-		TerminationPolicy: agent.DefaultTermination(),
-	})
+			Add(prompt.HandoffPolicy("Route weather questions to the 'weather' agent using transfer_to_agent. For other questions, answer directly."))).
+		HandoffTo("weather").
+		Build())
 
-	// --- Run ---
+	if err := registry.Finalize(); err != nil {
+		fmt.Fprintf(os.Stderr, "Registry error: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("User: %s\n\n", userPrompt)
 
-	result, err := agent.Orchestrate(ctx, client, registry, "triage", userPrompt, nil)
+	config := &agent.OrchestratorConfig{InitialState: make(map[string]any)}
+	result, err := agent.Orchestrate(ctx, client, registry, "triage", userPrompt, config)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -118,4 +81,7 @@ func main() {
 	fmt.Printf("Tokens used: %d\n", result.TotalTokens)
 	fmt.Printf("Iterations:  %d\n", result.Iterations)
 	fmt.Printf("Terminated:  %s\n", result.TerminateReason)
+	if result.State != nil && result.State["last_weather_city"] != nil {
+		fmt.Printf("Last weather city (from hook): %v\n", result.State["last_weather_city"])
+	}
 }

@@ -1,6 +1,10 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/kacperpaczos/agents/tool"
+)
 
 // Registry stores agents by name.
 type Registry struct {
@@ -32,4 +36,32 @@ func (r *Registry) Names() []string {
 		out = append(out, name)
 	}
 	return out
+}
+
+// Finalize validates that all handoff targets exist in the registry.
+// Call after all agents are registered, before Orchestrate.
+func (r *Registry) Finalize() error {
+	for agentName, ag := range r.agents {
+		if ag.Tools == nil {
+			continue
+		}
+		t := ag.Tools.Lookup(tool.TransferToolName)
+		if t == nil {
+			continue
+		}
+		def := t.Definition()
+		if def.Parameters == nil {
+			continue
+		}
+		agentProp, ok := def.Parameters.Properties["agent_name"]
+		if !ok || agentProp == nil {
+			continue
+		}
+		for _, target := range agentProp.Enum {
+			if r.agents[target] == nil {
+				return fmt.Errorf("agent %q references unknown handoff target %q", agentName, target)
+			}
+		}
+	}
+	return nil
 }

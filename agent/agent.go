@@ -16,6 +16,11 @@ type Agent struct {
 	TerminationPolicy termination.Policy
 	Temperature       *float32
 	MaxOutputTokens   int32
+	InitialState      map[string]any // optional defaults merged into state on first run
+	// Predictor is optional. If set, Run uses it instead of the predictor passed as a parameter.
+	Predictor Predictor
+	// Hooks provide lifecycle callbacks for customization. Nil = no hooks.
+	Hooks *Hooks
 }
 
 // ResolveSystemPrompt returns the effective system prompt.

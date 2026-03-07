@@ -12,7 +12,7 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 
 	ft := &FuncTool{
 		Decl: &genai.FunctionDeclaration{Name: "test_tool", Description: "A test tool."},
-		Fn: func(_ context.Context, _ map[string]any) (map[string]any, error) {
+		Fn: func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) {
 			return map[string]any{"ok": true}, nil
 		},
 	}
@@ -39,11 +39,11 @@ func TestRegistryDefinitions(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&FuncTool{
 		Decl: &genai.FunctionDeclaration{Name: "a"},
-		Fn:   func(_ context.Context, _ map[string]any) (map[string]any, error) { return nil, nil },
+		Fn:   func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) { return nil, nil },
 	})
 	r.Register(&FuncTool{
 		Decl: &genai.FunctionDeclaration{Name: "b"},
-		Fn:   func(_ context.Context, _ map[string]any) (map[string]any, error) { return nil, nil },
+		Fn:   func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) { return nil, nil },
 	})
 
 	defs := r.Definitions()
@@ -59,7 +59,7 @@ func TestRegistryDuplicatePanics(t *testing.T) {
 	r := NewRegistry()
 	ft := &FuncTool{
 		Decl: &genai.FunctionDeclaration{Name: "dup"},
-		Fn:   func(_ context.Context, _ map[string]any) (map[string]any, error) { return nil, nil },
+		Fn:   func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) { return nil, nil },
 	}
 	r.Register(ft)
 
@@ -74,14 +74,14 @@ func TestRegistryDuplicatePanics(t *testing.T) {
 func TestFuncToolExecute(t *testing.T) {
 	ft := &FuncTool{
 		Decl: &genai.FunctionDeclaration{Name: "add"},
-		Fn: func(_ context.Context, args map[string]any) (map[string]any, error) {
+		Fn: func(_ context.Context, args map[string]any, _ map[string]any) (map[string]any, error) {
 			a, _ := args["a"].(float64)
 			b, _ := args["b"].(float64)
 			return map[string]any{"result": a + b}, nil
 		},
 	}
 
-	result, err := ft.Execute(context.Background(), map[string]any{"a": float64(2), "b": float64(3)})
+	result, err := ft.Execute(context.Background(), map[string]any{"a": float64(2), "b": float64(3)}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

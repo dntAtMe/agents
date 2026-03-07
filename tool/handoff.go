@@ -32,7 +32,7 @@ func NewTransferTool(agentNames []string) Tool {
 				Required: []string{"agent_name"},
 			},
 		},
-		Fn: func(_ context.Context, _ map[string]any) (map[string]any, error) {
+		Fn: func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) {
 			// This should never be called — the ReACT loop intercepts it.
 			return nil, fmt.Errorf("transfer_to_agent should be intercepted by the reactor")
 		},

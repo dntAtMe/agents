@@ -9,7 +9,6 @@ import (
 	"google.golang.org/genai"
 
 	"github.com/kacperpaczos/agents/conversation"
-	"github.com/kacperpaczos/agents/llm"
 	"github.com/kacperpaczos/agents/termination"
 	"github.com/kacperpaczos/agents/tool"
 )
@@ -28,14 +27,22 @@ type RunResult struct {
 	TotalTokens     int32
 	Iterations      int
 	TerminateReason string
+	State           map[string]any
 }
 
 // Run executes the ReACT loop for one agent.
-func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.Conversation) (*RunResult, error) {
+// predictor is the default predictor; if ag.Predictor is set, it overrides.
+func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation.Conversation, state map[string]any) (*RunResult, error) {
 	var totalTokens int32
 	iteration := 0
 
-	// Build Gemini config.
+	// Select predictor: agent's override or default.
+	pred := predictor
+	if ag.Predictor != nil {
+		pred = ag.Predictor
+	}
+
+	// Build base config.
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: ag.ResolveSystemPrompt()}},
@@ -54,18 +61,39 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 	for {
 		iteration++
 
-		// 1. Call Gemini.
-		resp, err := client.GenerateContent(ctx, ag.Model, conv.Messages, config)
-		if err != nil {
-			return nil, fmt.Errorf("GenerateContent (iter %d): %w", iteration, err)
+		// 1. Build predict request.
+		req := PredictRequest{
+			Model:    ag.Model,
+			Messages: conv.Messages,
+			Config:   config,
 		}
 
-		// 2. Track token usage.
+		// 2. BeforePredict hook (can mutate req).
+		if ag.Hooks != nil && ag.Hooks.BeforePredict != nil {
+			hc := &HookContext{
+				Agent:        ag,
+				Conversation: conv,
+				State:        state,
+				Iteration:    iteration,
+				TotalTokens:  totalTokens,
+			}
+			if err := ag.Hooks.BeforePredict(ctx, hc, &req); err != nil {
+				return nil, fmt.Errorf("BeforePredict (iter %d): %w", iteration, err)
+			}
+		}
+
+		// 3. Call predictor.
+		resp, err := pred.Predict(ctx, req)
+		if err != nil {
+			return nil, fmt.Errorf("Predict (iter %d): %w", iteration, err)
+		}
+
+		// 4. Track token usage.
 		if resp.UsageMetadata != nil {
 			totalTokens += resp.UsageMetadata.TotalTokenCount
 		}
 
-		// 3. Append model response.
+		// 5. Append model response.
 		if len(resp.Candidates) == 0 {
 			return &RunResult{
 				FinalText:       "",
@@ -73,12 +101,28 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 				TotalTokens:     totalTokens,
 				Iterations:      iteration,
 				TerminateReason: "no candidates in response",
+				State:           state,
 			}, nil
 		}
 		modelContent := resp.Candidates[0].Content
+
+		// 6. AfterPredict hook.
+		if ag.Hooks != nil && ag.Hooks.AfterPredict != nil {
+			hc := &HookContext{
+				Agent:        ag,
+				Conversation: conv,
+				State:        state,
+				Iteration:    iteration,
+				TotalTokens:  totalTokens,
+			}
+			if err := ag.Hooks.AfterPredict(ctx, hc, modelContent); err != nil {
+				return nil, fmt.Errorf("AfterPredict (iter %d): %w", iteration, err)
+			}
+		}
+
 		conv.AppendModelContent(modelContent)
 
-		// 4. Extract function calls.
+		// 7. Extract function calls.
 		var funcCalls []*genai.FunctionCall
 		for _, part := range modelContent.Parts {
 			if part.FunctionCall != nil {
@@ -90,19 +134,20 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 
 		// 5. Check termination policy.
 		if ag.TerminationPolicy != nil {
-			state := termination.State{
+			tstate := termination.State{
 				Iteration:       iteration,
 				TotalTokensUsed: totalTokens,
 				LastResponse:    resp,
 				HasToolCalls:    hasToolCalls,
 			}
-			if stop, reason := ag.TerminationPolicy.ShouldTerminate(ctx, state); stop {
+			if stop, reason := ag.TerminationPolicy.ShouldTerminate(ctx, tstate); stop {
 				return &RunResult{
 					FinalText:       extractText(modelContent),
 					Conversation:    conv,
 					TotalTokens:     totalTokens,
 					Iterations:      iteration,
 					TerminateReason: reason,
+					State:           state,
 				}, nil
 			}
 		}
@@ -115,13 +160,14 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 				TotalTokens:     totalTokens,
 				Iterations:      iteration,
 				TerminateReason: "no tool calls",
+				State:           state,
 			}, nil
 		}
 
-		// 7. Execute function calls.
+		// 8. Execute function calls.
 		var resultParts []*genai.Part
 		for _, fc := range funcCalls {
-			// Check for handoff.
+			// Check for handoff (hooks not invoked for transfer).
 			if fc.Name == tool.TransferToolName {
 				targetAgent, _ := fc.Args["agent_name"].(string)
 				reason, _ := fc.Args["reason"].(string)
@@ -134,7 +180,22 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 					TotalTokens:     totalTokens,
 					Iterations:      iteration,
 					TerminateReason: "handoff",
+					State:           state,
 				}, nil
+			}
+
+			// BeforeToolCall hook.
+			if ag.Hooks != nil && ag.Hooks.BeforeToolCall != nil {
+				hc := &HookContext{
+					Agent:        ag,
+					Conversation: conv,
+					State:        state,
+					Iteration:    iteration,
+					TotalTokens:  totalTokens,
+				}
+				if err := ag.Hooks.BeforeToolCall(ctx, hc, fc); err != nil {
+					return nil, fmt.Errorf("BeforeToolCall %q (iter %d): %w", fc.Name, iteration, err)
+				}
 			}
 
 			// Regular tool execution.
@@ -150,7 +211,7 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 				continue
 			}
 
-			result, err := t.Execute(ctx, fc.Args)
+			result, err := t.Execute(ctx, fc.Args, state)
 			if err != nil {
 				resultParts = append(resultParts, &genai.Part{
 					FunctionResponse: &genai.FunctionResponse{
@@ -161,6 +222,20 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 				continue
 			}
 
+			// AfterToolCall hook.
+			if ag.Hooks != nil && ag.Hooks.AfterToolCall != nil {
+				hc := &HookContext{
+					Agent:        ag,
+					Conversation: conv,
+					State:        state,
+					Iteration:    iteration,
+					TotalTokens:  totalTokens,
+				}
+				if err := ag.Hooks.AfterToolCall(ctx, hc, fc, result); err != nil {
+					return nil, fmt.Errorf("AfterToolCall %q (iter %d): %w", fc.Name, iteration, err)
+				}
+			}
+
 			resultParts = append(resultParts, &genai.Part{
 				FunctionResponse: &genai.FunctionResponse{
 					Name:     fc.Name,
@@ -169,7 +244,23 @@ func Run(ctx context.Context, client *llm.Client, ag *Agent, conv *conversation.
 			})
 		}
 
-		// 8. Append tool results to conversation.
+		// 9. AfterToolCalls hook.
+		if ag.Hooks != nil && ag.Hooks.AfterToolCalls != nil {
+			hc := &HookContext{
+				Agent:        ag,
+				Conversation: conv,
+				State:        state,
+				Iteration:    iteration,
+				TotalTokens:  totalTokens,
+			}
+			var err error
+			resultParts, err = ag.Hooks.AfterToolCalls(ctx, hc, resultParts)
+			if err != nil {
+				return nil, fmt.Errorf("AfterToolCalls (iter %d): %w", iteration, err)
+			}
+		}
+
+		// 10. Append tool results to conversation.
 		conv.AppendToolResults(resultParts)
 	}
 }
