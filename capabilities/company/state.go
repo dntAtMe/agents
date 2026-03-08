@@ -12,6 +12,8 @@ const (
 	KeyUpdates        = "updates"
 	KeyAgentLastRound = "agent_last_round"
 	KeySimRuntime     = "sim_runtime"
+	KeyEmails         = "emails"
+	KeyMeetings       = "meetings"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -90,6 +92,30 @@ func GetAgentLastRound(state map[string]any) map[string]int {
 // Callers must type-assert to *agent.SimRuntime.
 func GetSimRuntime(state map[string]any) any {
 	return state[KeySimRuntime]
+}
+
+// GetEmailLog retrieves or creates the EmailLog in shared state.
+func GetEmailLog(state map[string]any) *EmailLog {
+	if v, ok := state[KeyEmails]; ok {
+		if el, ok := v.(*EmailLog); ok {
+			return el
+		}
+	}
+	el := NewEmailLog()
+	state[KeyEmails] = el
+	return el
+}
+
+// GetMeetingLog retrieves or creates the MeetingLog in shared state.
+func GetMeetingLog(state map[string]any) *MeetingLog {
+	if v, ok := state[KeyMeetings]; ok {
+		if ml, ok := v.(*MeetingLog); ok {
+			return ml
+		}
+	}
+	ml := NewMeetingLog()
+	state[KeyMeetings] = ml
+	return ml
 }
 
 // GetWorkspaceRoot returns the workspace root path from state.

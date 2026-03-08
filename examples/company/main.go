@@ -78,13 +78,26 @@ func main() {
 		_ = os.WriteFile(personalityPath, []byte(fmt.Sprintf("# Personality: %s\n\n%s\n", p.Name, p.Description)), 0o644)
 	}
 
-	// Shared ask_agent tool for all agents
+	// Shared tools for all agents
 	askAgent := company.AskAgentTool()
+	sendEmail := company.SendEmailTool()
+	checkInbox := company.CheckInboxTool()
+	replyEmail := company.ReplyEmailTool()
+
+	// Meeting tool — only non-leaf agents can call meetings
+	nonLeafAgents := []string{"ceo", "product-manager", "cto", "architect", "project-manager"}
+	callMeeting := company.CallGroupMeetingTool(nonLeafAgents)
 
 	// Helper to build personality mixin
 	personalityMixin := func(name string) prompt.Mixin {
 		return prompt.Mixin{Name: "Personality", Content: personalities[name].Description}
 	}
+
+	// Communication instructions
+	meetingEmailInstruction := "Use call_group_meeting to organize multi-agent discussions. " +
+		"Use send_email/check_inbox/reply_email for async communication."
+	emailOnlyInstruction := "Use send_email/check_inbox/reply_email for async communication. " +
+		"If you need a group meeting, ask your manager via ask_agent."
 
 	// --- Register all 8 agents ---
 	registry := agent.NewRegistry()
@@ -103,7 +116,8 @@ func main() {
 					"Delegate to project-manager for task breakdown and tracking. "+
 					"You can change project direction mid-stream if needed.")).
 			Add(prompt.ToolUsage(
-				"Use ask_agent to directly message any team member for quick questions or clarifications.")).
+				"Use ask_agent to directly message any team member for quick questions or clarifications. "+
+					meetingEmailInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -116,6 +130,10 @@ func main() {
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
+			callMeeting,
 		).
 		HandoffTo("product-manager", "cto", "project-manager").
 		Build())
@@ -132,7 +150,8 @@ func main() {
 				"Use write_file to create/update shared/prd.md. "+
 					"Use read_file to check existing documents. "+
 					"Use post_update to announce PRD updates. "+
-					"Use ask_agent to directly message team members for clarifications.")).
+					"Use ask_agent to directly message team members for clarifications. "+
+					meetingEmailInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -143,6 +162,10 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
+			callMeeting,
 		).
 		Build())
 
@@ -160,7 +183,8 @@ func main() {
 				"Use write_file for shared/architecture.md. "+
 					"Use log_decision for ADRs. Use read_task_board to check progress. "+
 					"Use post_update to announce technical decisions. "+
-					"Use ask_agent to directly message team members for quick technical questions.")).
+					"Use ask_agent to directly message team members for quick technical questions. "+
+					meetingEmailInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -176,6 +200,10 @@ func main() {
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
+			callMeeting,
 		).
 		HandoffTo("architect").
 		Build())
@@ -196,7 +224,8 @@ func main() {
 					"Use write_review to approve or request changes on implementation plans. "+
 					"Use post_update to announce review results on the 'reviews' channel. "+
 					"Use log_decision for architectural decisions. "+
-					"Use ask_agent to directly message developers for clarifications on their plans.")).
+					"Use ask_agent to directly message developers for clarifications on their plans. "+
+					meetingEmailInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -212,6 +241,10 @@ func main() {
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
+			callMeeting,
 		).
 		HandoffTo("backend-dev", "frontend-dev", "devops").
 		Build())
@@ -228,7 +261,8 @@ func main() {
 				"Use add_task to create new tasks. Use update_task to change statuses. "+
 					"Use read_task_board to review current state. "+
 					"Use post_update to announce task changes. "+
-					"Use ask_agent to directly message team members about blockers or status.")).
+					"Use ask_agent to directly message team members about blockers or status. "+
+					meetingEmailInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -241,6 +275,10 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
+			callMeeting,
 		).
 		Build())
 
@@ -261,7 +299,8 @@ func main() {
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
-					"Use ask_agent to directly message the architect for quick feedback.")).
+					"Use ask_agent to directly message the architect for quick feedback. "+
+					emailOnlyInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -275,6 +314,9 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
 		).
 		Build())
 
@@ -295,7 +337,8 @@ func main() {
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
-					"Use ask_agent to directly message the architect for quick feedback.")).
+					"Use ask_agent to directly message the architect for quick feedback. "+
+					emailOnlyInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -309,6 +352,9 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
 		).
 		Build())
 
@@ -329,7 +375,8 @@ func main() {
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
-					"Use ask_agent to directly message the architect for quick feedback.")).
+					"Use ask_agent to directly message the architect for quick feedback. "+
+					emailOnlyInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -343,6 +390,9 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			askAgent,
+			sendEmail,
+			checkInbox,
+			replyEmail,
 		).
 		Build())
 
@@ -396,7 +446,9 @@ func main() {
 	fmt.Println("  shared/decisions.md    — Decision Records")
 	fmt.Println("  shared/task_board.md   — Task Board")
 	fmt.Println("  shared/updates.md      — Team Updates")
+	fmt.Println("  shared/meetings/       — Meeting Transcripts")
 	fmt.Println("  */diary.md             — Agent Diaries")
+	fmt.Println("  */inbox.md             — Agent Email Inboxes")
 	fmt.Println("  */personality.md       — Agent Personalities")
 	fmt.Println("  architect/reviews/     — Code Reviews")
 	fmt.Println("  src/                   — Generated Code")

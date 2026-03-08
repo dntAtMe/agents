@@ -20,6 +20,7 @@ var devAgents = []string{"backend-dev", "frontend-dev", "devops"}
 func InitWorkspace(root string) error {
 	dirs := []string{
 		"shared",
+		"shared/meetings",
 		"architect/reviews",
 		"src/backend",
 		"src/frontend",
@@ -54,6 +55,7 @@ func InitWorkspace(root string) error {
 	for _, a := range agentDirs {
 		initialFiles[filepath.Join(a, "diary.md")] = fmt.Sprintf("# %s's Diary\n\n", a)
 		initialFiles[filepath.Join(a, "notes.md")] = fmt.Sprintf("# %s's Notes\n\n", a)
+		initialFiles[filepath.Join(a, "inbox.md")] = fmt.Sprintf("# %s's Inbox\n\nNo emails.\n", a)
 	}
 
 	for relPath, content := range initialFiles {
@@ -102,4 +104,17 @@ func SyncDecisions(root string, dl *DecisionLog) error {
 func SyncUpdates(root string, ul *UpdateLog) error {
 	content := ul.Render("", 0)
 	return os.WriteFile(filepath.Join(root, "shared", "updates.md"), []byte(content), 0o644)
+}
+
+// SyncMeetingNotes writes a meeting's notes to shared/meetings/MEET-{id}.md.
+func SyncMeetingNotes(root string, ml *MeetingLog, m Meeting) error {
+	content := ml.RenderMeeting(m)
+	return os.WriteFile(filepath.Join(root, "shared", "meetings", m.ID+".md"), []byte(content), 0o644)
+}
+
+// SyncInbox writes an agent's inbox to {agent}/inbox.md.
+func SyncInbox(root string, el *EmailLog, agentName string) error {
+	emails := el.Inbox(agentName, false, "")
+	content := el.RenderInbox(emails)
+	return os.WriteFile(filepath.Join(root, agentName, "inbox.md"), []byte(content), 0o644)
 }
