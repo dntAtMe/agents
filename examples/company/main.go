@@ -13,12 +13,55 @@ import (
 	"path/filepath"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"google.golang.org/genai"
+
 	"github.com/dntatme/agents/agent"
 	"github.com/dntatme/agents/capabilities/company"
 	"github.com/dntatme/agents/llm"
 	"github.com/dntatme/agents/prompt"
 	"github.com/dntatme/agents/trace"
+	"github.com/dntatme/agents/tui"
 )
+
+// mergeHooks combines two hook sets so both are called on each event.
+func mergeHooks(a, b *agent.Hooks) *agent.Hooks {
+	return &agent.Hooks{
+		AfterPredict: func(ctx context.Context, hc *agent.HookContext, content *genai.Content) error {
+			if a.AfterPredict != nil {
+				if err := a.AfterPredict(ctx, hc, content); err != nil {
+					return err
+				}
+			}
+			if b.AfterPredict != nil {
+				return b.AfterPredict(ctx, hc, content)
+			}
+			return nil
+		},
+		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+			if a.BeforeToolCall != nil {
+				if err := a.BeforeToolCall(ctx, hc, fc); err != nil {
+					return err
+				}
+			}
+			if b.BeforeToolCall != nil {
+				return b.BeforeToolCall(ctx, hc, fc)
+			}
+			return nil
+		},
+		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+			if a.AfterToolCall != nil {
+				if err := a.AfterToolCall(ctx, hc, fc, result); err != nil {
+					return err
+				}
+			}
+			if b.AfterToolCall != nil {
+				return b.AfterToolCall(ctx, hc, fc, result)
+			}
+			return nil
+		},
+	}
+}
 
 func main() {
 	apiKey := os.Getenv("GEMINI_API_KEY")
@@ -46,7 +89,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Workspace init error: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Workspace: %s\n", workspaceRoot)
 
 	// Initialize tracer
 	tr, err := trace.New(filepath.Join(workspaceRoot, "trace.jsonl"))
@@ -55,6 +97,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer tr.Close()
+
+	// TUI event channel and factories
+	events := make(chan tui.Event, 64)
+	tuiHooks := tui.Hooks(events)
+	tuiCb := tui.Callbacks(events)
 
 	// Shared diary instruction appended to all agent prompts
 	diaryInstruction := "At the end of your turn, always write a diary entry with write_diary. " +
@@ -72,12 +119,6 @@ func main() {
 		"project-manager", "backend-dev", "frontend-dev", "devops",
 	}
 	personalities := company.AssignPersonalities(agentNames)
-
-	fmt.Println("Personality assignments:")
-	for _, name := range agentNames {
-		fmt.Printf("  %s → %s\n", name, personalities[name].Name)
-	}
-	fmt.Println()
 
 	// Write personality files to workspace
 	for _, name := range agentNames {
@@ -415,19 +456,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Attach tracer hooks to all agents
+	// Attach merged hooks (tracer + TUI) to all agents
 	tracerHooks := tr.Hooks()
+	merged := mergeHooks(tracerHooks, tuiHooks)
 	for _, name := range agentNames {
 		ag := registry.Lookup(name)
 		if ag != nil {
-			ag.Hooks = tracerHooks
+			ag.Hooks = merged
 		}
 	}
 
-	fmt.Printf("Project: %s\n\n", userPrompt)
-
-	// Run simulation
-	result, err := agent.Simulate(ctx, client, registry, userPrompt, &agent.SimulationConfig{
+	// Wrap tracer callbacks with TUI callbacks so both are called
+	simConfig := &agent.SimulationConfig{
 		MaxRounds: 10,
 		InitialState: map[string]any{
 			"workspace_root": workspaceRoot,
@@ -438,46 +478,85 @@ func main() {
 			"project-manager", "backend-dev", "frontend-dev", "devops",
 		},
 		OnRoundEnd: func(round int, state map[string]any) {
-			log.Printf("=== Round %d complete ===\n", round)
+			tuiCb.OnRoundEnd(round, state)
 		},
-		OnSimulationStart: tr.SimulationStart,
-		OnSimulationEnd:   tr.SimulationEnd,
-		OnRoundStart:      tr.RoundStart,
-		OnAgentActivation: tr.AgentActivation,
-		OnAgentCompletion: tr.AgentCompletion,
-	})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Simulation error: %v\n", err)
+		OnSimulationStart: func(prompt string, maxRounds int, agents []string) {
+			tr.SimulationStart(prompt, maxRounds, agents)
+			tuiCb.OnSimulationStart(prompt, maxRounds, agents)
+		},
+		OnSimulationEnd: func(totalRounds int, reason string) {
+			tr.SimulationEnd(totalRounds, reason)
+			tuiCb.OnSimulationEnd(totalRounds, reason)
+		},
+		OnRoundStart: func(round int) {
+			tr.RoundStart(round)
+			tuiCb.OnRoundStart(round)
+		},
+		OnAgentActivation: func(round int, agentName string) {
+			tr.AgentActivation(round, agentName)
+			tuiCb.OnAgentActivation(round, agentName)
+		},
+		OnAgentCompletion: func(round int, agentName string, result *agent.RunResult, idle bool) {
+			tr.AgentCompletion(round, agentName, result, idle)
+			tuiCb.OnAgentCompletion(round, agentName, result, idle)
+		},
+	}
+
+	// Run simulation in a goroutine; TUI owns the main thread.
+	var simResult *agent.SimulationResult
+	var simErr error
+
+	go func() {
+		simResult, simErr = agent.Simulate(ctx, client, registry, userPrompt, simConfig)
+	}()
+
+	// Suppress log output while TUI is running
+	log.SetOutput(os.NewFile(0, os.DevNull))
+
+	// Run TUI
+	p := tea.NewProgram(tui.New(events), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Print summary
-	fmt.Printf("\n=== Simulation Complete ===\n")
-	fmt.Printf("Total rounds: %d\n", result.TotalRounds)
-	fmt.Printf("Total agent runs: %d\n", len(result.AgentRuns))
+	// Restore log output
+	log.SetOutput(os.Stderr)
 
-	var totalTokens int32
-	idleCount := 0
-	for _, run := range result.AgentRuns {
-		totalTokens += run.Tokens
-		if run.Idle {
-			idleCount++
-		}
+	// Print summary after TUI exits
+	if simErr != nil {
+		fmt.Fprintf(os.Stderr, "Simulation error: %v\n", simErr)
+		os.Exit(1)
 	}
-	fmt.Printf("Total tokens: %d\n", totalTokens)
-	fmt.Printf("Idle responses: %d\n", idleCount)
 
-	fmt.Printf("\nCheck %s for generated artifacts:\n", workspaceRoot)
-	fmt.Println("  shared/prd.md          — Product Requirements")
-	fmt.Println("  shared/architecture.md — Technical Architecture")
-	fmt.Println("  shared/decisions.md    — Decision Records")
-	fmt.Println("  shared/task_board.md   — Task Board")
-	fmt.Println("  shared/updates.md      — Team Updates")
-	fmt.Println("  shared/meetings/       — Meeting Transcripts")
-	fmt.Println("  */diary.md             — Agent Diaries")
-	fmt.Println("  */inbox.md             — Agent Email Inboxes")
-	fmt.Println("  */personality.md       — Agent Personalities")
-	fmt.Println("  architect/reviews/     — Code Reviews")
-	fmt.Println("  src/                   — Generated Code")
-	fmt.Println("  trace.jsonl            — Event Trace")
+	if simResult != nil {
+		fmt.Printf("\n=== Simulation Complete ===\n")
+		fmt.Printf("Total rounds: %d\n", simResult.TotalRounds)
+		fmt.Printf("Total agent runs: %d\n", len(simResult.AgentRuns))
+
+		var totalTokens int32
+		idleCount := 0
+		for _, run := range simResult.AgentRuns {
+			totalTokens += run.Tokens
+			if run.Idle {
+				idleCount++
+			}
+		}
+		fmt.Printf("Total tokens: %d\n", totalTokens)
+		fmt.Printf("Idle responses: %d\n", idleCount)
+
+		fmt.Printf("\nCheck %s for generated artifacts:\n", workspaceRoot)
+		fmt.Println("  shared/prd.md          — Product Requirements")
+		fmt.Println("  shared/architecture.md — Technical Architecture")
+		fmt.Println("  shared/decisions.md    — Decision Records")
+		fmt.Println("  shared/task_board.md   — Task Board")
+		fmt.Println("  shared/updates.md      — Team Updates")
+		fmt.Println("  shared/meetings/       — Meeting Transcripts")
+		fmt.Println("  */diary.md             — Agent Diaries")
+		fmt.Println("  */inbox.md             — Agent Email Inboxes")
+		fmt.Println("  */personality.md       — Agent Personalities")
+		fmt.Println("  architect/reviews/     — Code Reviews")
+		fmt.Println("  src/                   — Generated Code")
+		fmt.Println("  trace.jsonl            — Event Trace")
+	}
 }
