@@ -2,6 +2,7 @@ package company
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -1044,6 +1045,283 @@ func (fl *FiringLog) Render() string {
 			sb.WriteString(fmt.Sprintf("**CEO Comments:** %s\n", r.CEOComments))
 		}
 		sb.WriteString(fmt.Sprintf("**Round:** %d\n\n---\n\n", r.Round))
+	}
+	return sb.String()
+}
+
+// --- Code review types ---
+
+// CodeComment represents an inline comment on a specific file and line.
+type CodeComment struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Severity string `json:"severity"` // error, warning, suggestion, nit
+	Comment  string `json:"comment"`
+}
+
+// CodeReview represents a structured code review session.
+type CodeReview struct {
+	ID       string        `json:"id"`
+	TaskID   string        `json:"task_id"`
+	Reviewer string        `json:"reviewer"`
+	Round    int           `json:"round"`
+	Verdict  string        `json:"verdict"` // "", approved, needs_changes (empty = pending)
+	Summary  string        `json:"summary"`
+	Comments []CodeComment `json:"comments"`
+}
+
+// CodeReviewLog holds all code reviews with thread-safe access.
+type CodeReviewLog struct {
+	mu      sync.Mutex
+	Reviews []CodeReview `json:"reviews"`
+	counter int
+}
+
+// NewCodeReviewLog creates an empty code review log.
+func NewCodeReviewLog() *CodeReviewLog {
+	return &CodeReviewLog{}
+}
+
+// Add creates a new code review and returns its ID.
+func (cl *CodeReviewLog) Add(taskID, reviewer, summary string, round int) string {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.counter++
+	id := fmt.Sprintf("CR-%03d", cl.counter)
+	cl.Reviews = append(cl.Reviews, CodeReview{
+		ID:       id,
+		TaskID:   taskID,
+		Reviewer: reviewer,
+		Round:    round,
+		Summary:  summary,
+	})
+	return id
+}
+
+// GetByID returns a pointer to the code review with the given ID, or nil.
+func (cl *CodeReviewLog) GetByID(id string) *CodeReview {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	for i := range cl.Reviews {
+		if cl.Reviews[i].ID == id {
+			return &cl.Reviews[i]
+		}
+	}
+	return nil
+}
+
+// GetByTaskID returns all reviews for a given task ID.
+func (cl *CodeReviewLog) GetByTaskID(taskID string) []CodeReview {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	var result []CodeReview
+	for _, r := range cl.Reviews {
+		if r.TaskID == taskID {
+			result = append(result, r)
+		}
+	}
+	return result
+}
+
+// ReviewRoundForTask returns the next review round number for a given task.
+func (cl *CodeReviewLog) ReviewRoundForTask(taskID string) int {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	maxRound := 0
+	for _, r := range cl.Reviews {
+		if r.TaskID == taskID {
+			maxRound++
+		}
+	}
+	return maxRound
+}
+
+// Render produces a markdown representation of reviews for a given task.
+func (cl *CodeReviewLog) Render(taskID string) string {
+	reviews := cl.GetByTaskID(taskID)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Code Reviews for %s\n\n", taskID))
+	if len(reviews) == 0 {
+		sb.WriteString("No reviews yet.\n")
+		return sb.String()
+	}
+	for _, r := range reviews {
+		sb.WriteString(fmt.Sprintf("## %s (Reviewer: %s, Round: %d)\n\n", r.ID, r.Reviewer, r.Round))
+		verdict := r.Verdict
+		if verdict == "" {
+			verdict = "pending"
+		}
+		sb.WriteString(fmt.Sprintf("**Verdict:** %s\n\n", verdict))
+		sb.WriteString(fmt.Sprintf("**Summary:** %s\n\n", r.Summary))
+		if len(r.Comments) > 0 {
+			sb.WriteString("### Comments\n\n")
+			for _, c := range r.Comments {
+				sb.WriteString(fmt.Sprintf("- **%s:%d** [%s]: %s\n", c.File, c.Line, c.Severity, c.Comment))
+			}
+			sb.WriteString("\n")
+		}
+		sb.WriteString("---\n\n")
+	}
+	return sb.String()
+}
+
+// RenderWithSource renders a review with inline source context from the workspace.
+func (cl *CodeReviewLog) RenderWithSource(review CodeReview, workspaceRoot string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("# Code Review %s for %s\n\n", review.ID, review.TaskID))
+	sb.WriteString(fmt.Sprintf("**Reviewer:** %s\n", review.Reviewer))
+	sb.WriteString(fmt.Sprintf("**Round:** %d\n", review.Round))
+	verdict := review.Verdict
+	if verdict == "" {
+		verdict = "pending"
+	}
+	sb.WriteString(fmt.Sprintf("**Verdict:** %s\n\n", verdict))
+	sb.WriteString(fmt.Sprintf("**Summary:** %s\n\n", review.Summary))
+
+	if len(review.Comments) > 0 {
+		sb.WriteString("## Inline Comments\n\n")
+		for _, c := range review.Comments {
+			sb.WriteString(fmt.Sprintf("### %s:%d [%s]\n\n", c.File, c.Line, strings.ToUpper(c.Severity)))
+			// Try to show the referenced source line
+			if workspaceRoot != "" {
+				fullPath := workspaceRoot + string(os.PathSeparator) + c.File
+				data, err := os.ReadFile(fullPath)
+				if err == nil {
+					lines := strings.Split(string(data), "\n")
+					if c.Line > 0 && c.Line <= len(lines) {
+						start := c.Line - 2
+						if start < 0 {
+							start = 0
+						}
+						end := c.Line + 1
+						if end > len(lines) {
+							end = len(lines)
+						}
+						sb.WriteString("```\n")
+						for i := start; i < end; i++ {
+							marker := "  "
+							if i == c.Line-1 {
+								marker = "> "
+							}
+							sb.WriteString(fmt.Sprintf("%s%d: %s\n", marker, i+1, lines[i]))
+						}
+						sb.WriteString("```\n\n")
+					}
+				}
+			}
+			sb.WriteString(fmt.Sprintf("**Comment:** %s\n\n", c.Comment))
+		}
+	}
+	return sb.String()
+}
+
+// --- File snapshot types ---
+
+// FileSnapshot stores a snapshot of a file's content at a point in time.
+type FileSnapshot struct {
+	Path    string `json:"path"`
+	TaskID  string `json:"task_id"`
+	Content string `json:"content"`
+	Round   int    `json:"round"`
+}
+
+// FileSnapshotLog holds file snapshots with thread-safe access.
+type FileSnapshotLog struct {
+	mu        sync.Mutex
+	Snapshots []FileSnapshot `json:"snapshots"`
+}
+
+// NewFileSnapshotLog creates an empty file snapshot log.
+func NewFileSnapshotLog() *FileSnapshotLog {
+	return &FileSnapshotLog{}
+}
+
+// Save stores a file snapshot.
+func (fl *FileSnapshotLog) Save(path, taskID, content string, round int) {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	fl.Snapshots = append(fl.Snapshots, FileSnapshot{
+		Path:    path,
+		TaskID:  taskID,
+		Content: content,
+		Round:   round,
+	})
+}
+
+// GetLatest returns the most recent snapshot for a given path and optional task ID.
+func (fl *FileSnapshotLog) GetLatest(path, taskID string) *FileSnapshot {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	var latest *FileSnapshot
+	for i := range fl.Snapshots {
+		s := &fl.Snapshots[i]
+		if s.Path != path {
+			continue
+		}
+		if taskID != "" && s.TaskID != taskID {
+			continue
+		}
+		latest = s
+	}
+	return latest
+}
+
+// --- Command execution types ---
+
+// CommandResult records a command execution.
+type CommandResult struct {
+	Command  string `json:"command"`
+	Agent    string `json:"agent"`
+	Round    int    `json:"round"`
+	ExitCode int    `json:"exit_code"`
+	Output   string `json:"output"`
+	TimedOut bool   `json:"timed_out"`
+}
+
+// CommandLog holds command execution results with thread-safe access.
+type CommandLog struct {
+	mu       sync.Mutex
+	Commands []CommandResult `json:"commands"`
+}
+
+// NewCommandLog creates an empty command log.
+func NewCommandLog() *CommandLog {
+	return &CommandLog{}
+}
+
+// Add records a command result.
+func (cl *CommandLog) Add(result CommandResult) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	cl.Commands = append(cl.Commands, result)
+}
+
+// Render produces a markdown representation of command execution history.
+func (cl *CommandLog) Render() string {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString("# Command Log\n\n")
+	if len(cl.Commands) == 0 {
+		sb.WriteString("No commands executed.\n")
+		return sb.String()
+	}
+	for i, c := range cl.Commands {
+		sb.WriteString(fmt.Sprintf("## Command #%d (Round %d, Agent: %s)\n\n", i+1, c.Round, c.Agent))
+		sb.WriteString(fmt.Sprintf("```\n$ %s\n", c.Command))
+		if c.Output != "" {
+			sb.WriteString(c.Output)
+			if !strings.HasSuffix(c.Output, "\n") {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString("```\n\n")
+		sb.WriteString(fmt.Sprintf("Exit code: %d", c.ExitCode))
+		if c.TimedOut {
+			sb.WriteString(" (timed out)")
+		}
+		sb.WriteString("\n\n---\n\n")
 	}
 	return sb.String()
 }

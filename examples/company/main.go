@@ -162,6 +162,20 @@ func main() {
 	nonLeafAgents := []string{"ceo", "product-manager", "cto", "architect", "project-manager"}
 	callMeeting := company.CallGroupMeetingTool(nonLeafAgents)
 
+	// Code editing & search tools
+	editFile := company.EditFileTool()
+	searchFiles := company.SearchFilesTool()
+	diffFile := company.DiffFileTool()
+
+	// Command execution tool
+	runCommand := company.RunCommandTool()
+
+	// Structured code review tools
+	startCodeReview := company.StartCodeReviewTool()
+	addReviewComment := company.AddReviewCommentTool()
+	submitCodeReview := company.SubmitCodeReviewTool()
+	readCodeReviews := company.ReadCodeReviewsTool()
+
 	// Helper to build personality mixin
 	personalityMixin := func(name string) prompt.Mixin {
 		return prompt.Mixin{Name: "Personality", Content: personalities[name].Description}
@@ -195,6 +209,19 @@ func main() {
 	ceoFireInstruction := "As CEO, use view_fire_requests EVERY round to check for pending requests. " +
 		"Approve firing requests promptly when justified — the company cannot afford dead weight. " +
 		"Use approve_fire to approve or deny them."
+
+	// Coding workflow instructions for developers
+	codingWorkflowInstruction := "Your coding workflow: 1) Search existing code with search_files to understand context. " +
+		"2) Write/edit code with write_file or edit_file. 3) Run build and tests with run_command. " +
+		"4) If build/tests fail, fix the code and re-run. Iterate until passing. " +
+		"5) Update task to 'awaiting_review' only when build succeeds. " +
+		"6) After review, use read_code_reviews to see inline feedback, then fix with edit_file."
+
+	// Code review workflow instructions for reviewers
+	codeReviewInstruction := "When reviewing code: 1) Read the source files with read_file and search_files. " +
+		"2) Use start_code_review to begin a review, then add_review_comment for each issue " +
+		"with specific file, line, and severity. 3) Use submit_code_review with your verdict. " +
+		"4) Optionally run_command to verify the implementation builds/passes tests."
 
 	// --- Register all 8 agents ---
 	registry := agent.NewRegistry()
@@ -295,6 +322,7 @@ func main() {
 				"Use write_file for shared/architecture.md. "+
 					"Use log_decision for ADRs. Use read_task_board to check progress. "+
 					"Use post_update to announce technical decisions. "+
+					codeReviewInstruction+"\n"+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -311,6 +339,13 @@ func main() {
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
+
+			searchFiles,
+			diffFile,
+			startCodeReview,
+			addReviewComment,
+			submitCodeReview,
+			readCodeReviews,
 
 			sendEmail,
 			checkInbox,
@@ -343,6 +378,7 @@ func main() {
 					"Use write_review to approve or request changes on implementation plans. "+
 					"Use post_update to announce review results on the 'reviews' channel. "+
 					"Use log_decision for architectural decisions. "+
+					codeReviewInstruction+"\n"+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -358,6 +394,14 @@ func main() {
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
+
+			searchFiles,
+			diffFile,
+			runCommand,
+			startCodeReview,
+			addReviewComment,
+			submitCodeReview,
+			readCodeReviews,
 
 			sendEmail,
 			checkInbox,
@@ -439,6 +483,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use write_review to review tasks when you are the assigned reviewer. "+
+					codingWorkflowInstruction+"\n"+
 					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -453,6 +498,12 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
+
+			editFile,
+			searchFiles,
+			diffFile,
+			runCommand,
+			readCodeReviews,
 
 			sendEmail,
 			checkInbox,
@@ -483,6 +534,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use write_review to review tasks when you are the assigned reviewer. "+
+					codingWorkflowInstruction+"\n"+
 					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -497,6 +549,12 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
+
+			editFile,
+			searchFiles,
+			diffFile,
+			runCommand,
+			readCodeReviews,
 
 			sendEmail,
 			checkInbox,
@@ -527,6 +585,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use write_review to review tasks when you are the assigned reviewer. "+
+					codingWorkflowInstruction+"\n"+
 					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -541,6 +600,12 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
+
+			editFile,
+			searchFiles,
+			diffFile,
+			runCommand,
+			readCodeReviews,
 
 			sendEmail,
 			checkInbox,
@@ -666,7 +731,9 @@ func main() {
 		fmt.Println("  */diary.md             — Agent Diaries")
 		fmt.Println("  */inbox.md             — Agent Email Inboxes")
 		fmt.Println("  */personality.md       — Agent Personalities")
-		fmt.Println("  shared/reviews/        — Code Reviews")
+		fmt.Println("  shared/reviews/        — Plan Reviews")
+		fmt.Println("  shared/code-reviews/   — Code Reviews")
+		fmt.Println("  shared/command-log.md  — Command Log")
 		fmt.Println("  src/                   — Generated Code")
 		fmt.Println("  trace.jsonl            — Event Trace")
 	}

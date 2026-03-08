@@ -15,7 +15,8 @@
       "Bash(go vet:*)",
       "Bash(go list:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(wc:*)"
     ]
   }
 }

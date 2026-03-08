@@ -22,6 +22,7 @@ func InitWorkspace(root string) error {
 		"shared",
 		"shared/meetings",
 		"shared/reviews",
+		"shared/code-reviews",
 		"architect/reviews",
 		"src/backend",
 		"src/frontend",
@@ -148,4 +149,22 @@ func SyncRelationships(root string, rl *RelationshipLog, agentName string) error
 		content = "# Relationships\n\nNo relationship scores recorded yet.\n"
 	}
 	return os.WriteFile(filepath.Join(root, agentName, "relationships.md"), []byte(content), 0o644)
+}
+
+// SyncCodeReviews writes a code review to shared/code-reviews/{task_id}-review-R{round}.md.
+func SyncCodeReviews(root string, log *CodeReviewLog, review CodeReview) error {
+	dir := filepath.Join(root, "shared", "code-reviews")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	round := log.ReviewRoundForTask(review.TaskID)
+	filename := fmt.Sprintf("%s-review-R%d.md", review.TaskID, round)
+	content := log.RenderWithSource(review, root)
+	return os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644)
+}
+
+// SyncCommandLog writes the command log to shared/command-log.md.
+func SyncCommandLog(root string, cl *CommandLog) error {
+	content := cl.Render()
+	return os.WriteFile(filepath.Join(root, "shared", "command-log.md"), []byte(content), 0o644)
 }

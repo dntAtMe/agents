@@ -20,6 +20,9 @@ const (
 	KeyFirings        = "firings"
 	KeyOrgHierarchy   = "org_hierarchy"
 	KeyFiredAgents    = "fired_agents"
+	KeyCodeReviews    = "code_reviews"
+	KeyFileSnapshots  = "file_snapshots"
+	KeyCommandLog     = "command_log"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -190,6 +193,42 @@ func GetOrgHierarchy(state map[string]any) *OrgHierarchy {
 		}
 	}
 	return nil
+}
+
+// GetCodeReviewLog retrieves or creates the CodeReviewLog in shared state.
+func GetCodeReviewLog(state map[string]any) *CodeReviewLog {
+	if v, ok := state[KeyCodeReviews]; ok {
+		if cl, ok := v.(*CodeReviewLog); ok {
+			return cl
+		}
+	}
+	cl := NewCodeReviewLog()
+	state[KeyCodeReviews] = cl
+	return cl
+}
+
+// GetFileSnapshotLog retrieves or creates the FileSnapshotLog in shared state.
+func GetFileSnapshotLog(state map[string]any) *FileSnapshotLog {
+	if v, ok := state[KeyFileSnapshots]; ok {
+		if fl, ok := v.(*FileSnapshotLog); ok {
+			return fl
+		}
+	}
+	fl := NewFileSnapshotLog()
+	state[KeyFileSnapshots] = fl
+	return fl
+}
+
+// GetCommandLog retrieves or creates the CommandLog in shared state.
+func GetCommandLog(state map[string]any) *CommandLog {
+	if v, ok := state[KeyCommandLog]; ok {
+		if cl, ok := v.(*CommandLog); ok {
+			return cl
+		}
+	}
+	cl := NewCommandLog()
+	state[KeyCommandLog] = cl
+	return cl
 }
 
 // GetFiredAgents returns the map of fired agents from state.
