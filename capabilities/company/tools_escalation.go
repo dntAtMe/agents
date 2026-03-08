@@ -116,10 +116,30 @@ func ViewEscalationsTool() tool.Tool {
 
 			var sb strings.Builder
 			sb.WriteString(fmt.Sprintf("# Escalations (%s)\n\n", statusFilter))
+
+			// Show repeat-offender summary
+			aboutCounts := make(map[string]int)
+			for _, e := range escalations {
+				aboutCounts[e.AboutAgent]++
+			}
+			for agent, count := range aboutCounts {
+				if count >= 2 {
+					totalCount := escLog.CountAbout(agent)
+					actionCount := escLog.CountActionTakenAbout(agent)
+					pl := GetPiPLog(state)
+					hasPiP := pl.HasActivePiP(agent)
+					warning := fmt.Sprintf("⚠ **%s** has %d total escalations (%d with action taken)", agent, totalCount, actionCount)
+					if hasPiP {
+						warning += " — CURRENTLY ON PiP"
+					}
+					sb.WriteString(warning + "\n\n")
+				}
+			}
+
 			for _, e := range escalations {
 				sb.WriteString(fmt.Sprintf("## %s\n\n", e.ID))
 				sb.WriteString(fmt.Sprintf("**Filed by:** %s\n", e.FromAgent))
-				sb.WriteString(fmt.Sprintf("**About:** %s\n", e.AboutAgent))
+				sb.WriteString(fmt.Sprintf("**About:** %s (total escalations: %d)\n", e.AboutAgent, escLog.CountAbout(e.AboutAgent)))
 				sb.WriteString(fmt.Sprintf("**Reason:** %s\n", e.Reason))
 				if e.Evidence != "" {
 					sb.WriteString(fmt.Sprintf("**Evidence:** %s\n", e.Evidence))
@@ -193,16 +213,83 @@ func RespondToEscalationTool() tool.Tool {
 				escalationID, esc.AboutAgent, status, resolution)
 			el.Send(caller, []string{esc.FromAgent}, nil, subject, body, round, false)
 
+			// Auto-consequences when taking action
+			result := map[string]any{
+				"status":        "responded",
+				"escalation_id": escalationID,
+			}
+			if status == "action_taken" {
+				actionCount := escLog.CountActionTakenAbout(esc.AboutAgent)
+				pl := GetPiPLog(state)
+
+				// 3+ action_taken escalations AND active PiP → auto-request firing
+				if actionCount >= 3 && pl.HasActivePiP(esc.AboutAgent) {
+					fl := GetFiringLog(state)
+					fireReason := fmt.Sprintf("Auto-generated: %d escalations with action_taken against %s while on active PiP.", actionCount, esc.AboutAgent)
+					fireID := fl.RequestFire(esc.AboutAgent, caller, fireReason, round)
+
+					// CEO auto-approves if caller is CEO
+					if caller == "ceo" {
+						_ = fl.CEODecision(fireID, "approved", "Auto-approved: repeated escalations while on PiP.")
+						firedAgents := GetFiredAgents(state)
+						firedAgents[esc.AboutAgent] = true
+
+						el.Send("ceo", []string{esc.AboutAgent}, nil,
+							fmt.Sprintf("Termination Notice — %s", fireID),
+							fmt.Sprintf("You have been terminated due to repeated escalations while on PiP.\n\n**Reason:** %s\n\nThis decision is final.", fireReason),
+							round, false)
+						if root != "" {
+							_ = SyncInbox(root, el, esc.AboutAgent)
+						}
+					} else {
+						// Send firing request to CEO
+						el.Send(caller, []string{"ceo"}, nil,
+							fmt.Sprintf("Auto-generated Firing Request %s: %s", fireID, esc.AboutAgent),
+							fmt.Sprintf("Automatic firing request generated after %d escalations with action taken against %s while on active PiP.\n\n"+
+								"**Request ID:** %s\n**Target:** %s\n**Reason:** %s\n\n"+
+								"Please review using view_fire_requests and approve_fire.",
+								actionCount, esc.AboutAgent, fireID, esc.AboutAgent, fireReason),
+							round, false)
+						if root != "" {
+							_ = SyncInbox(root, el, "ceo")
+						}
+					}
+					if root != "" {
+						_ = SyncFirings(root, fl)
+					}
+					result["auto_action"] = fmt.Sprintf("Firing request %s auto-generated for %s (repeated escalations while on PiP).", fireID, esc.AboutAgent)
+
+				} else if actionCount >= 2 && !pl.HasActivePiP(esc.AboutAgent) {
+					// 2+ action_taken escalations without active PiP → auto-issue PiP
+					pipReason := fmt.Sprintf("Auto-generated: %d escalations with action_taken against %s.", actionCount, esc.AboutAgent)
+					pipExpectations := "Immediate improvement required. Further escalations while on PiP will result in termination request."
+					reviewRound := round + 2
+					pipID := pl.Add(esc.AboutAgent, caller, pipReason, pipExpectations, reviewRound, round)
+
+					// Notify the target
+					el.Send(caller, []string{esc.AboutAgent}, nil,
+						fmt.Sprintf("Performance Improvement Plan %s (Auto-Generated)", pipID),
+						fmt.Sprintf("A PiP has been automatically issued due to repeated escalations.\n\n"+
+							"**PiP ID:** %s\n**Target:** %s\n**Reason:** %s\n**Expectations:** %s\n**Review round:** %d\n\n"+
+							"Further escalations while on PiP will result in a termination request.",
+							pipID, esc.AboutAgent, pipReason, pipExpectations, reviewRound),
+						round, false)
+
+					if root != "" {
+						_ = SyncPiPs(root, pl)
+						_ = SyncInbox(root, el, esc.AboutAgent)
+					}
+					result["auto_action"] = fmt.Sprintf("PiP %s auto-issued for %s (repeated escalations).", pipID, esc.AboutAgent)
+				}
+			}
+
 			// Sync files
 			if root != "" {
 				_ = SyncEscalations(root, escLog)
 				_ = SyncInbox(root, el, esc.FromAgent)
 			}
 
-			return map[string]any{
-				"status":        "responded",
-				"escalation_id": escalationID,
-			}, nil
+			return result, nil
 		}).
 		Build()
 }

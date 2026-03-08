@@ -788,6 +788,18 @@ func (pl *PiPLog) Render() string {
 	return sb.String()
 }
 
+// HasActivePiP returns true if the given agent has an active PiP.
+func (pl *PiPLog) HasActivePiP(agent string) bool {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	for _, p := range pl.Records {
+		if p.TargetAgent == agent && p.Status == "active" {
+			return true
+		}
+	}
+	return false
+}
+
 // EscalationLog holds all escalations with thread-safe access.
 type EscalationLog struct {
 	mu          sync.Mutex
@@ -858,6 +870,32 @@ func (el *EscalationLog) GetAllFor(manager string) []Escalation {
 		}
 	}
 	return result
+}
+
+// CountAbout returns the number of escalations filed about a specific agent.
+func (el *EscalationLog) CountAbout(agent string) int {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	count := 0
+	for _, e := range el.Escalations {
+		if e.AboutAgent == agent {
+			count++
+		}
+	}
+	return count
+}
+
+// CountActionTakenAbout returns the number of escalations about an agent with status "action_taken".
+func (el *EscalationLog) CountActionTakenAbout(agent string) int {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	count := 0
+	for _, e := range el.Escalations {
+		if e.AboutAgent == agent && e.Status == "action_taken" {
+			count++
+		}
+	}
+	return count
 }
 
 // GetByID returns an escalation by its ID.

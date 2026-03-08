@@ -181,14 +181,19 @@ func main() {
 	// Relationship & escalation instructions
 	relationshipInstruction := "Use view_relationships to see your relationship scores with colleagues. " +
 		"Use update_relationship to adjust scores based on interactions (delta -20 to +20). " +
-		"Use file_escalation to formally report a colleague's bad behavior to their manager. " +
+		"Use file_escalation to formally report a colleague's bad behavior to their manager — do not hesitate to escalate repeated problems. " +
 		"Your relationship scores influence your tone and cooperation level. " +
-		"Be authentic — lower scores mean less patience and willingness to help."
-	managerEscalationInstruction := "As a manager, use view_escalations to see escalations filed to you. " +
-		"Use respond_to_escalation to acknowledge, dismiss, or take action. " +
-		"Use record_pip for performance issues when the target is in your reporting chain. " +
-		"Use request_fire to request firing a direct report if their behavior is unacceptable."
-	ceoFireInstruction := "As CEO, use view_fire_requests to see pending firing requests. " +
+		"Be authentic — lower scores mean less patience and willingness to help. " +
+		"Do not forgive repeated offenses — escalate and let the system handle consequences."
+	managerEscalationInstruction := "As a manager, use view_escalations EVERY round to check for pending escalations. " +
+		"You MUST respond to every escalation — never ignore them. " +
+		"Do NOT dismiss escalations lightly — if the complaint has merit, use 'action_taken'. " +
+		"Repeated escalations about the same person are a serious problem: " +
+		"2 action_taken escalations auto-generates a PiP, and 3 while on PiP auto-generates a firing request. " +
+		"Use record_pip proactively for performance issues — do not wait for the system to auto-generate one. " +
+		"Use request_fire when behavior is unacceptable. Do not give infinite chances."
+	ceoFireInstruction := "As CEO, use view_fire_requests EVERY round to check for pending requests. " +
+		"Approve firing requests promptly when justified — the company cannot afford dead weight. " +
 		"Use approve_fire to approve or deny them."
 
 	// --- Register all 8 agents ---
