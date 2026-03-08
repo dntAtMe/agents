@@ -11,6 +11,7 @@ const (
 	KeyDecisions      = "decisions"
 	KeyUpdates        = "updates"
 	KeyAgentLastRound = "agent_last_round"
+	KeySimRuntime     = "sim_runtime"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -82,6 +83,13 @@ func GetAgentLastRound(state map[string]any) map[string]int {
 	m := make(map[string]int)
 	state[KeyAgentLastRound] = m
 	return m
+}
+
+// GetSimRuntime returns the SimRuntime from state, or nil if not set.
+// The return type is any to avoid a circular dependency with the agent package.
+// Callers must type-assert to *agent.SimRuntime.
+func GetSimRuntime(state map[string]any) any {
+	return state[KeySimRuntime]
 }
 
 // GetWorkspaceRoot returns the workspace root path from state.

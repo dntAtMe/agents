@@ -10,6 +10,17 @@ import (
 	"github.com/dntatme/agents/llm"
 )
 
+// SimRuntime holds the runtime dependencies needed by tools (like ask_agent)
+// that need to invoke agents during a simulation. Stored in state as "sim_runtime".
+type SimRuntime struct {
+	Client    *llm.Client
+	Registry  *Registry
+	Predictor Predictor
+	// RunAgent runs a target agent with a message and returns its final text.
+	// This is set by Simulate() so tools can invoke agents without importing this package.
+	RunAgent func(ctx context.Context, targetName, message string, state map[string]any) (string, error)
+}
+
 // SimulationConfig controls the simulation loop.
 type SimulationConfig struct {
 	MaxRounds    int                                  // default 15
@@ -81,6 +92,28 @@ func Simulate(
 	predictor := NewLLMPredictor(client)
 	var allRuns []AgentRunRecord
 
+	// Store SimRuntime in state so tools like ask_agent can invoke agents
+	state["sim_runtime"] = &SimRuntime{
+		Client:    client,
+		Registry:  registry,
+		Predictor: predictor,
+	}
+
+	// Store RunAgent function directly in state for tools to use without circular imports
+	state["sim_run_agent"] = func(ctx context.Context, targetName, message string, callerState map[string]any) (string, error) {
+		ag := registry.Lookup(targetName)
+		if ag == nil {
+			return "", fmt.Errorf("agent %q not found", targetName)
+		}
+		conv := conversation.New()
+		conv.AppendUserText(message)
+		result, err := Run(ctx, predictor, ag, conv, callerState)
+		if err != nil {
+			return "", err
+		}
+		return result.FinalText, nil
+	}
+
 	// Round 0 (bootstrap): Run CEO with user prompt
 	log.Printf("[Simulation] === Round 0 (Bootstrap) ===")
 	state["current_round"] = 0
@@ -132,6 +165,11 @@ func Simulate(
 	for round := 1; round <= maxRounds; round++ {
 		log.Printf("[Simulation] === Round %d ===", round)
 		state["current_round"] = round
+
+		// Reset DM counts for this round
+		for _, name := range agentOrder {
+			state[fmt.Sprintf("dm_count_%s_%d", name, round)] = 0
+		}
 
 		allIdle := true
 

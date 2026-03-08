@@ -57,6 +57,35 @@ func main() {
 	contextInstruction := "This is a simulation. Read updates since your last active round to catch up. " +
 		"Use read_updates, read_task_board, and read_file to understand the current state before acting."
 
+	// --- Assign personalities ---
+	agentNames := []string{
+		"ceo", "product-manager", "cto", "architect",
+		"project-manager", "backend-dev", "frontend-dev", "devops",
+	}
+	personalities := company.AssignPersonalities(agentNames)
+
+	fmt.Println("Personality assignments:")
+	for _, name := range agentNames {
+		fmt.Printf("  %s → %s\n", name, personalities[name].Name)
+	}
+	fmt.Println()
+
+	// Write personality files to workspace
+	for _, name := range agentNames {
+		p := personalities[name]
+		personalityPath := filepath.Join(workspaceRoot, name, "personality.md")
+		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
+		_ = os.WriteFile(personalityPath, []byte(fmt.Sprintf("# Personality: %s\n\n%s\n", p.Name, p.Description)), 0o644)
+	}
+
+	// Shared ask_agent tool for all agents
+	askAgent := company.AskAgentTool()
+
+	// Helper to build personality mixin
+	personalityMixin := func(name string) prompt.Mixin {
+		return prompt.Mixin{Name: "Personality", Content: personalities[name].Description}
+	}
+
 	// --- Register all 8 agents ---
 	registry := agent.NewRegistry()
 
@@ -67,11 +96,14 @@ func main() {
 				"You are the CEO of a software company. You set strategic direction, "+
 					"define what the company should build, and coordinate high-level execution. "+
 					"You do NOT write code or technical documents — you delegate.")).
+			Add(personalityMixin("ceo")).
 			Add(prompt.HandoffPolicy(
 				"Delegate to product-manager for requirements and PRD writing. "+
 					"Delegate to cto for technical architecture and development oversight. "+
 					"Delegate to project-manager for task breakdown and tracking. "+
 					"You can change project direction mid-stream if needed.")).
+			Add(prompt.ToolUsage(
+				"Use ask_agent to directly message any team member for quick questions or clarifications.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -83,6 +115,7 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		HandoffTo("product-manager", "cto", "project-manager").
 		Build())
@@ -94,10 +127,12 @@ func main() {
 				"You are the Product Manager. You translate business needs into a clear "+
 					"Product Requirements Document (PRD) with user stories and acceptance criteria. "+
 					"Write the PRD to shared/prd.md.")).
+			Add(personalityMixin("product-manager")).
 			Add(prompt.ToolUsage(
 				"Use write_file to create/update shared/prd.md. "+
 					"Use read_file to check existing documents. "+
-					"Use post_update to announce PRD updates.")).
+					"Use post_update to announce PRD updates. "+
+					"Use ask_agent to directly message team members for clarifications.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -107,6 +142,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		Build())
 
@@ -117,12 +153,14 @@ func main() {
 				"You are the CTO. You make technology choices, define the technical architecture, "+
 					"and coordinate technical execution. Write architecture to shared/architecture.md. "+
 					"Use log_decision for important technical decisions.")).
+			Add(personalityMixin("cto")).
 			Add(prompt.HandoffPolicy(
 				"Delegate detailed design and code review to the architect.")).
 			Add(prompt.ToolUsage(
 				"Use write_file for shared/architecture.md. "+
 					"Use log_decision for ADRs. Use read_task_board to check progress. "+
-					"Use post_update to announce technical decisions.")).
+					"Use post_update to announce technical decisions. "+
+					"Use ask_agent to directly message team members for quick technical questions.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -137,6 +175,7 @@ func main() {
 			company.LogDecisionTool(),
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		HandoffTo("architect").
 		Build())
@@ -149,13 +188,15 @@ func main() {
 					"review developer proposals, and ensure code quality and architectural consistency. "+
 					"Check for implementation plans in backend-dev/plans/, frontend-dev/plans/, and devops/plans/. "+
 					"Write reviews to architect/reviews/ using write_review.")).
+			Add(personalityMixin("architect")).
 			Add(prompt.HandoffPolicy(
 				"You can delegate implementation work to backend-dev, frontend-dev, or devops.")).
 			Add(prompt.ToolUsage(
 				"Use read_file to review developer plans. "+
 					"Use write_review to approve or request changes on implementation plans. "+
 					"Use post_update to announce review results on the 'reviews' channel. "+
-					"Use log_decision for architectural decisions.")).
+					"Use log_decision for architectural decisions. "+
+					"Use ask_agent to directly message developers for clarifications on their plans.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -170,6 +211,7 @@ func main() {
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
 			company.WriteReviewTool(),
+			askAgent,
 		).
 		HandoffTo("backend-dev", "frontend-dev", "devops").
 		Build())
@@ -181,10 +223,12 @@ func main() {
 				"You are the Project Manager. You break work into tasks, track progress, "+
 					"and identify blockers. Read the PRD and architecture to create tasks. "+
 					"Monitor task statuses each round and post status updates.")).
+			Add(personalityMixin("project-manager")).
 			Add(prompt.ToolUsage(
 				"Use add_task to create new tasks. Use update_task to change statuses. "+
 					"Use read_task_board to review current state. "+
-					"Use post_update to announce task changes.")).
+					"Use post_update to announce task changes. "+
+					"Use ask_agent to directly message team members about blockers or status.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -196,6 +240,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		Build())
 
@@ -209,12 +254,14 @@ func main() {
 					"3) Post update requesting architect review. "+
 					"4) Once approved, implement code in src/backend/. "+
 					"5) Update task status to 'done'.")).
+			Add(personalityMixin("backend-dev")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
 					"Use write_file for plans and source code. "+
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
-					"Use post_update to request reviews.")).
+					"Use post_update to request reviews. "+
+					"Use ask_agent to directly message the architect for quick feedback.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -227,6 +274,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		Build())
 
@@ -240,12 +288,14 @@ func main() {
 					"3) Post update requesting architect review. "+
 					"4) Once approved, implement code in src/frontend/. "+
 					"5) Update task status to 'done'.")).
+			Add(personalityMixin("frontend-dev")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
 					"Use write_file for plans and source code. "+
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
-					"Use post_update to request reviews.")).
+					"Use post_update to request reviews. "+
+					"Use ask_agent to directly message the architect for quick feedback.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -258,6 +308,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		Build())
 
@@ -271,12 +322,14 @@ func main() {
 					"3) Post update requesting architect review. "+
 					"4) Once approved, implement infrastructure in src/infra/. "+
 					"5) Update task status to 'done'.")).
+			Add(personalityMixin("devops")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
 					"Use write_file for plans and infra code. "+
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
-					"Use post_update to request reviews.")).
+					"Use post_update to request reviews. "+
+					"Use ask_agent to directly message the architect for quick feedback.")).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -289,6 +342,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			askAgent,
 		).
 		Build())
 
@@ -343,6 +397,7 @@ func main() {
 	fmt.Println("  shared/task_board.md   — Task Board")
 	fmt.Println("  shared/updates.md      — Team Updates")
 	fmt.Println("  */diary.md             — Agent Diaries")
+	fmt.Println("  */personality.md       — Agent Personalities")
 	fmt.Println("  architect/reviews/     — Code Reviews")
 	fmt.Println("  src/                   — Generated Code")
 }
