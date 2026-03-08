@@ -23,6 +23,7 @@ func InitWorkspace(root string) error {
 		"shared/meetings",
 		"shared/reviews",
 		"shared/code-reviews",
+		"shared/coffee",
 		"architect/reviews",
 		"src/backend",
 		"src/frontend",

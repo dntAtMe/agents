@@ -23,6 +23,7 @@ const (
 	KeyCodeReviews    = "code_reviews"
 	KeyFileSnapshots  = "file_snapshots"
 	KeyCommandLog     = "command_log"
+	KeyActionPoints   = "action_points"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -229,6 +230,16 @@ func GetCommandLog(state map[string]any) *CommandLog {
 	cl := NewCommandLog()
 	state[KeyCommandLog] = cl
 	return cl
+}
+
+// GetActionPointTracker retrieves the ActionPointTracker from shared state, or nil if not set.
+func GetActionPointTracker(state map[string]any) *ActionPointTracker {
+	if v, ok := state[KeyActionPoints]; ok {
+		if t, ok := v.(*ActionPointTracker); ok {
+			return t
+		}
+	}
+	return nil
 }
 
 // GetFiredAgents returns the map of fired agents from state.

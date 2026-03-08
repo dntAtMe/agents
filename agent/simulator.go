@@ -33,9 +33,11 @@ type SimulationConfig struct {
 	MaxRounds    int                                   // default 15
 	InitialState map[string]any                        // shared state
 	AgentOrder   []string                              // activation order per round
-	OnRoundEnd   func(round int, state map[string]any) // optional callback
+	OnRoundEnd      func(round int, state map[string]any) // optional callback
+	OnBetweenRounds func(ctx context.Context, round int, state map[string]any) // runs after OnRoundEnd, before next round
 
 	// Tracing callbacks — all optional.
+	OnInitRound       func(round int, agents []string, state map[string]any) // called before agents run each round
 	OnSimulationStart func(prompt string, maxRounds int, agents []string)
 	OnSimulationEnd   func(totalRounds int, reason string)
 	OnRoundStart      func(round int)
@@ -211,6 +213,10 @@ func Simulate(
 		log.Printf("[Simulation] === Round %d ===", round)
 		state["current_round"] = round
 
+		if config.OnInitRound != nil {
+			config.OnInitRound(round, agentOrder, state)
+		}
+
 		if config.OnRoundStart != nil {
 			config.OnRoundStart(round)
 		}
@@ -315,6 +321,11 @@ func Simulate(
 		if config.OnRoundEnd != nil {
 			config.OnRoundEnd(round, state)
 		}
+
+		// OnBetweenRounds callback (coffee breaks, etc.)
+		if config.OnBetweenRounds != nil {
+			config.OnBetweenRounds(ctx, round, state)
+		}
 	}
 
 	log.Printf("[Simulation] Reached maximum rounds (%d)", maxRounds)
@@ -390,6 +401,15 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 	))
 	sb.WriteString("Let this affect your behavior: as patience drops, be more direct, less accommodating, and quicker to escalate blockers.\n")
 	sb.WriteString("\nAt the end of your turn, always write a diary entry with write_diary. Be honest and personal — reflect on your work, the project direction, and your thoughts about the team's work.\n")
+
+	// Inject action point budget info if available
+	if apRenderer, ok := state["ap_renderer"].(func(string) string); ok {
+		if apInfo := apRenderer(agentName); apInfo != "" {
+			sb.WriteString("\n")
+			sb.WriteString(apInfo)
+			sb.WriteString("\n")
+		}
+	}
 
 	// Inject relationship context if a renderer is available
 	if renderer, ok := state["relationship_renderer"].(func(string) string); ok {

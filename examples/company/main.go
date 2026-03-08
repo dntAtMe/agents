@@ -110,6 +110,10 @@ func main() {
 
 	idleInstruction := "If there is nothing for you to do this round, respond with just 'IDLE'."
 
+	energyInstruction := "You have limited action points (AP) per round. Read-only actions are cheap (1 AP), " +
+		"writing costs more (2-3 AP), meetings cost 5 AP. Budget your turn wisely. " +
+		"Use get_coffee to take a coffee break between rounds and get +5 bonus AP next round."
+
 	contextInstruction := "This is a simulation. Read updates since your last active round to catch up. " +
 		"Use read_updates, read_task_board, and read_file to understand the current state before acting."
 
@@ -166,6 +170,9 @@ func main() {
 	editFile := company.EditFileTool()
 	searchFiles := company.SearchFilesTool()
 	diffFile := company.DiffFileTool()
+
+	// Coffee break tool (all agents)
+	getCoffee := company.GetCoffeeTool()
 
 	// Command execution tool
 	runCommand := company.RunCommandTool()
@@ -242,7 +249,7 @@ func main() {
 			Add(prompt.ToolUsage(
 				meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction+"\n"+ceoFireInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -266,6 +273,7 @@ func main() {
 			requestFire,
 			viewFireRequests,
 			approveFire,
+			getCoffee,
 		).
 		HandoffTo("product-manager", "cto", "project-manager").
 		Build())
@@ -284,7 +292,7 @@ func main() {
 					"Use post_update to announce PRD updates. "+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -304,6 +312,7 @@ func main() {
 			respondToEscalation,
 			recordPiP,
 			requestFire,
+			getCoffee,
 		).
 		Build())
 
@@ -325,7 +334,7 @@ func main() {
 					codeReviewInstruction+"\n"+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -358,6 +367,7 @@ func main() {
 			respondToEscalation,
 			recordPiP,
 			requestFire,
+			getCoffee,
 		).
 		HandoffTo("architect").
 		Build())
@@ -381,7 +391,7 @@ func main() {
 					codeReviewInstruction+"\n"+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -414,6 +424,7 @@ func main() {
 			respondToEscalation,
 			recordPiP,
 			requestFire,
+			getCoffee,
 		).
 		HandoffTo("backend-dev", "frontend-dev", "devops").
 		Build())
@@ -438,7 +449,7 @@ func main() {
 					"Use send_email with urgent=true to chase developers on overdue or stalled tasks. "+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.ListFilesTool(),
@@ -460,6 +471,7 @@ func main() {
 			respondToEscalation,
 			recordPiP,
 			requestFire,
+			getCoffee,
 		).
 		Build())
 
@@ -486,7 +498,7 @@ func main() {
 					codingWorkflowInstruction+"\n"+
 					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -511,6 +523,7 @@ func main() {
 			viewRelationships,
 			updateRelationship,
 			fileEscalation,
+			getCoffee,
 		).
 		Build())
 
@@ -537,7 +550,7 @@ func main() {
 					codingWorkflowInstruction+"\n"+
 					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -562,6 +575,7 @@ func main() {
 			viewRelationships,
 			updateRelationship,
 			fileEscalation,
+			getCoffee,
 		).
 		Build())
 
@@ -588,7 +602,7 @@ func main() {
 					codingWorkflowInstruction+"\n"+
 					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
 			company.ReadFileTool(),
 			company.WriteFileTool(),
@@ -613,6 +627,7 @@ func main() {
 			viewRelationships,
 			updateRelationship,
 			fileEscalation,
+			getCoffee,
 		).
 		Build())
 
@@ -622,9 +637,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Attach merged hooks (tracer + TUI) to all agents
+	// Initialize action point tracker
+	apTracker := company.NewActionPointTracker(15, 5, 3)
+
+	// Attach merged hooks (tracer + TUI + AP) to all agents
 	tracerHooks := tr.Hooks()
-	merged := mergeHooks(tracerHooks, tuiHooks)
+	apHooks := &agent.Hooks{
+		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+			agentName := company.GetCurrentAgent(hc.State)
+			cost := company.GetToolCost(fc.Name)
+			remaining := apTracker.Remaining(agentName)
+
+			// Hard cap: block tool if too far in debt
+			if remaining <= -apTracker.HardCap {
+				return fmt.Errorf("ACTION POINTS EXHAUSTED: You have %d AP remaining (hard cap reached). Your turn is over", remaining)
+			}
+
+			// Deduct cost
+			apTracker.Deduct(agentName, cost)
+			return nil
+		},
+		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+			agentName := company.GetCurrentAgent(hc.State)
+			remaining := apTracker.Remaining(agentName)
+
+			// Soft limit: inject warning when at or below 0
+			if remaining <= 0 {
+				result["_ap_warning"] = fmt.Sprintf(
+					"WARNING: You have %d action points remaining. Wrap up now — only write_diary is recommended. "+
+						"At %d AP your turn will be forcibly ended.",
+					remaining, -apTracker.HardCap,
+				)
+			}
+			return nil
+		},
+	}
+	merged := mergeHooks(mergeHooks(tracerHooks, tuiHooks), apHooks)
 	for _, name := range agentNames {
 		ag := registry.Lookup(name)
 		if ag != nil {
@@ -632,18 +680,28 @@ func main() {
 		}
 	}
 
-	// Wrap tracer callbacks with TUI callbacks so both are called
 	// Build initial state with org hierarchy and relationship renderer
 	initialState := map[string]any{
-		"workspace_root":        workspaceRoot,
-		"project_name":          userPrompt,
-		company.KeyOrgHierarchy: orgHierarchy,
-		company.KeyFiredAgents:  map[string]bool{},
+		"workspace_root":          workspaceRoot,
+		"project_name":            userPrompt,
+		company.KeyOrgHierarchy:   orgHierarchy,
+		company.KeyFiredAgents:    map[string]bool{},
+		company.KeyActionPoints:   apTracker,
 	}
 
 	// Store relationship renderer as a closure (avoids circular import)
 	initialState["relationship_renderer"] = func(agentName string) string {
 		return company.GetRelationshipLog(initialState).RenderForAgent(agentName)
+	}
+
+	// Store AP renderer for activation prompts
+	initialState["ap_renderer"] = func(agentName string) string {
+		remaining := apTracker.Remaining(agentName)
+		return fmt.Sprintf(
+			"You have %d action points this round. Each action costs points (read=1, write=2-3, meetings=5). "+
+				"Budget your turn wisely. Use get_coffee to take a coffee break and get +5 bonus AP next round.",
+			remaining,
+		)
 	}
 
 	simConfig := &agent.SimulationConfig{
@@ -653,8 +711,14 @@ func main() {
 			"ceo", "product-manager", "cto", "architect",
 			"project-manager", "backend-dev", "frontend-dev", "devops",
 		},
+		OnInitRound: func(round int, agents []string, state map[string]any) {
+			apTracker.InitRound(agents)
+		},
 		OnRoundEnd: func(round int, state map[string]any) {
 			tuiCb.OnRoundEnd(round, state)
+		},
+		OnBetweenRounds: func(ctx context.Context, round int, state map[string]any) {
+			company.RunCoffeeBreak(ctx, state)
 		},
 		OnSimulationStart: func(prompt string, maxRounds int, agents []string) {
 			tr.SimulationStart(prompt, maxRounds, agents)
@@ -728,6 +792,7 @@ func main() {
 		fmt.Println("  shared/task_board.md   — Task Board")
 		fmt.Println("  shared/updates.md      — Team Updates")
 		fmt.Println("  shared/meetings/       — Meeting Transcripts")
+		fmt.Println("  shared/coffee/         — Coffee Break Chats")
 		fmt.Println("  */diary.md             — Agent Diaries")
 		fmt.Println("  */inbox.md             — Agent Email Inboxes")
 		fmt.Println("  */personality.md       — Agent Personalities")

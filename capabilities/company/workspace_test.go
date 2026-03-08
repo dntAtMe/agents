@@ -27,6 +27,14 @@ func TestInitWorkspace(t *testing.T) {
 		}
 	}
 
+	// Check shared/coffee directory exists
+	coffeeDir := filepath.Join(root, "shared", "coffee")
+	if info, err := os.Stat(coffeeDir); err != nil {
+		t.Errorf("expected shared/coffee/ to exist: %v", err)
+	} else if !info.IsDir() {
+		t.Error("expected shared/coffee/ to be a directory")
+	}
+
 	// Check agent directories
 	for _, a := range agentDirs {
 		diary := filepath.Join(root, a, "diary.md")
