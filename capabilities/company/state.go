@@ -16,6 +16,7 @@ const (
 	KeyMeetings       = "meetings"
 	KeyRelationships  = "relationships"
 	KeyEscalations    = "escalations"
+	KeyPIPs           = "pips"
 	KeyFirings        = "firings"
 	KeyOrgHierarchy   = "org_hierarchy"
 	KeyFiredAgents    = "fired_agents"
@@ -155,6 +156,18 @@ func GetEscalationLog(state map[string]any) *EscalationLog {
 	el := NewEscalationLog()
 	state[KeyEscalations] = el
 	return el
+}
+
+// GetPiPLog retrieves or creates the PiPLog in shared state.
+func GetPiPLog(state map[string]any) *PiPLog {
+	if v, ok := state[KeyPIPs]; ok {
+		if pl, ok := v.(*PiPLog); ok {
+			return pl
+		}
+	}
+	pl := NewPiPLog()
+	state[KeyPIPs] = pl
+	return pl
 }
 
 // GetFiringLog retrieves or creates the FiringLog in shared state.

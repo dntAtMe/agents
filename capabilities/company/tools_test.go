@@ -510,3 +510,79 @@ func TestFileEscalationRejectsSelfRoutingWithoutSuperior(t *testing.T) {
 		t.Fatalf("expected 'no superior' error, got %q", errMsg)
 	}
 }
+
+func TestRecordPiPForAgentInManagementChain(t *testing.T) {
+	root, state := setupTestWorkspace(t)
+	ctx := context.Background()
+
+	oh := NewOrgHierarchy()
+	oh.SetManager("cto", "ceo")
+	oh.SetManager("architect", "cto")
+	oh.SetManager("backend-dev", "architect")
+	state[KeyOrgHierarchy] = oh
+	state[KeyCurrentAgent] = "cto"
+	state[KeyCurrentRound] = 3
+
+	rt := RecordPiPTool()
+	result, err := rt.Execute(ctx, map[string]any{
+		"agent_name":   "backend-dev",
+		"reason":       "Missed repeated delivery commitments.",
+		"expectations": "Provide weekly status and close assigned blockers.",
+		"review_round": 5,
+	}, state)
+	if err != nil {
+		t.Fatalf("record pip: %v", err)
+	}
+	if result["status"] != "recorded" {
+		t.Fatalf("expected status recorded, got %v", result["status"])
+	}
+
+	pl := GetPiPLog(state)
+	if len(pl.Records) != 1 {
+		t.Fatalf("expected 1 pip record, got %d", len(pl.Records))
+	}
+	if pl.Records[0].TargetAgent != "backend-dev" {
+		t.Fatalf("expected target backend-dev, got %s", pl.Records[0].TargetAgent)
+	}
+	if pl.Records[0].RecordedBy != "cto" {
+		t.Fatalf("expected recorded_by cto, got %s", pl.Records[0].RecordedBy)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "shared", "pips.md"))
+	if err != nil {
+		t.Fatalf("read shared/pips.md: %v", err)
+	}
+	if !strings.Contains(string(data), "PIP-001") {
+		t.Fatalf("expected pips.md to include PIP-001, got: %s", string(data))
+	}
+}
+
+func TestRecordPiPRejectedOutsideManagementChain(t *testing.T) {
+	_, state := setupTestWorkspace(t)
+	ctx := context.Background()
+
+	oh := NewOrgHierarchy()
+	oh.SetManager("cto", "ceo")
+	oh.SetManager("architect", "cto")
+	oh.SetManager("backend-dev", "architect")
+	state[KeyOrgHierarchy] = oh
+	state[KeyCurrentAgent] = "cto"
+	state[KeyCurrentRound] = 3
+
+	rt := RecordPiPTool()
+	result, err := rt.Execute(ctx, map[string]any{
+		"agent_name":   "product-manager",
+		"reason":       "test",
+		"expectations": "test",
+	}, state)
+	if err != nil {
+		t.Fatalf("record pip: %v", err)
+	}
+	errMsg, ok := result["error"].(string)
+	if !ok {
+		t.Fatalf("expected error, got %v", result)
+	}
+	if !strings.Contains(errMsg, "management chain") {
+		t.Fatalf("expected management chain error, got %q", errMsg)
+	}
+}

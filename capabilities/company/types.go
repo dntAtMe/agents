@@ -220,21 +220,21 @@ func (ml *MeetingLog) RenderMeeting(m Meeting) string {
 
 // Email represents a single email message.
 type Email struct {
-	ID        string   `json:"id"`
-	ThreadID  string   `json:"thread_id"`
-	From      string   `json:"from"`
-	To        []string `json:"to"`
-	Subject   string   `json:"subject"`
-	Body      string   `json:"body"`
-	Round     int      `json:"round"`
+	ID        string    `json:"id"`
+	ThreadID  string    `json:"thread_id"`
+	From      string    `json:"from"`
+	To        []string  `json:"to"`
+	Subject   string    `json:"subject"`
+	Body      string    `json:"body"`
+	Round     int       `json:"round"`
 	Time      time.Time `json:"time"`
-	InReplyTo string   `json:"in_reply_to,omitempty"`
+	InReplyTo string    `json:"in_reply_to,omitempty"`
 }
 
 // EmailLog holds all emails with thread-safe access.
 type EmailLog struct {
 	mu      sync.Mutex
-	Emails  []Email                    `json:"emails"`
+	Emails  []Email `json:"emails"`
 	counter int
 	ReadBy  map[string]map[string]bool `json:"-"` // agentName → emailID → read
 }
@@ -622,6 +622,79 @@ type Escalation struct {
 	Time       time.Time `json:"time"`
 	Status     string    `json:"status"`     // pending, acknowledged, dismissed, action_taken
 	Resolution string    `json:"resolution"` // manager's response
+}
+
+// --- PiP types ---
+
+// PiPRecord represents a Performance Improvement Plan entry.
+type PiPRecord struct {
+	ID           string    `json:"id"`
+	TargetAgent  string    `json:"target_agent"`
+	RecordedBy   string    `json:"recorded_by"`
+	Reason       string    `json:"reason"`
+	Expectations string    `json:"expectations"`
+	ReviewRound  int       `json:"review_round"`
+	Status       string    `json:"status"` // active, completed, failed, canceled
+	Round        int       `json:"round"`
+	Time         time.Time `json:"time"`
+}
+
+// PiPLog holds all PiP records with thread-safe access.
+type PiPLog struct {
+	mu      sync.Mutex
+	Records []PiPRecord `json:"records"`
+	counter int
+}
+
+// NewPiPLog creates an empty PiP log.
+func NewPiPLog() *PiPLog {
+	return &PiPLog{}
+}
+
+// Add creates a new PiP record and returns its ID.
+func (pl *PiPLog) Add(targetAgent, recordedBy, reason, expectations string, reviewRound, round int) string {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+	pl.counter++
+	id := fmt.Sprintf("PIP-%03d", pl.counter)
+	pl.Records = append(pl.Records, PiPRecord{
+		ID:           id,
+		TargetAgent:  targetAgent,
+		RecordedBy:   recordedBy,
+		Reason:       reason,
+		Expectations: expectations,
+		ReviewRound:  reviewRound,
+		Status:       "active",
+		Round:        round,
+		Time:         time.Now(),
+	})
+	return id
+}
+
+// Render produces a markdown representation of all PiP records.
+func (pl *PiPLog) Render() string {
+	pl.mu.Lock()
+	defer pl.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString("# Performance Improvement Plans (PiP)\n\n")
+	if len(pl.Records) == 0 {
+		sb.WriteString("No PiP records.\n")
+		return sb.String()
+	}
+	for _, p := range pl.Records {
+		sb.WriteString(fmt.Sprintf("## %s\n\n", p.ID))
+		sb.WriteString(fmt.Sprintf("**Target:** %s\n", p.TargetAgent))
+		sb.WriteString(fmt.Sprintf("**Recorded by:** %s\n", p.RecordedBy))
+		sb.WriteString(fmt.Sprintf("**Reason:** %s\n", p.Reason))
+		sb.WriteString(fmt.Sprintf("**Expectations:** %s\n", p.Expectations))
+		if p.ReviewRound > 0 {
+			sb.WriteString(fmt.Sprintf("**Review round:** %d\n", p.ReviewRound))
+		}
+		sb.WriteString(fmt.Sprintf("**Status:** %s\n", p.Status))
+		sb.WriteString(fmt.Sprintf("**Created in round:** %d\n\n---\n\n", p.Round))
+	}
+	return sb.String()
 }
 
 // EscalationLog holds all escalations with thread-safe access.

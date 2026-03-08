@@ -152,6 +152,7 @@ func main() {
 	fileEscalation := company.FileEscalationTool()
 	viewEscalations := company.ViewEscalationsTool()
 	respondToEscalation := company.RespondToEscalationTool()
+	recordPiP := company.RecordPiPTool()
 
 	// Firing tools
 	requestFire := company.RequestFireTool()
@@ -185,6 +186,7 @@ func main() {
 		"Be authentic — lower scores mean less patience and willingness to help."
 	managerEscalationInstruction := "As a manager, use view_escalations to see escalations filed to you. " +
 		"Use respond_to_escalation to acknowledge, dismiss, or take action. " +
+		"Use record_pip for performance issues when the target is in your reporting chain. " +
 		"Use request_fire to request firing a direct report if their behavior is unacceptable."
 	ceoFireInstruction := "As CEO, use view_fire_requests to see pending firing requests. " +
 		"Use approve_fire to approve or deny them."
@@ -229,6 +231,7 @@ func main() {
 			fileEscalation,
 			viewEscalations,
 			respondToEscalation,
+			recordPiP,
 			requestFire,
 			viewFireRequests,
 			approveFire,
@@ -269,6 +272,7 @@ func main() {
 			fileEscalation,
 			viewEscalations,
 			respondToEscalation,
+			recordPiP,
 			requestFire,
 		).
 		Build())
@@ -313,6 +317,7 @@ func main() {
 			fileEscalation,
 			viewEscalations,
 			respondToEscalation,
+			recordPiP,
 			requestFire,
 		).
 		HandoffTo("architect").
@@ -360,6 +365,7 @@ func main() {
 			fileEscalation,
 			viewEscalations,
 			respondToEscalation,
+			recordPiP,
 			requestFire,
 		).
 		HandoffTo("backend-dev", "frontend-dev", "devops").
@@ -400,6 +406,7 @@ func main() {
 			fileEscalation,
 			viewEscalations,
 			respondToEscalation,
+			recordPiP,
 			requestFire,
 		).
 		Build())
@@ -546,8 +553,8 @@ func main() {
 	// Wrap tracer callbacks with TUI callbacks so both are called
 	// Build initial state with org hierarchy and relationship renderer
 	initialState := map[string]any{
-		"workspace_root":  workspaceRoot,
-		"project_name":    userPrompt,
+		"workspace_root":        workspaceRoot,
+		"project_name":          userPrompt,
 		company.KeyOrgHierarchy: orgHierarchy,
 		company.KeyFiredAgents:  map[string]bool{},
 	}

@@ -51,6 +51,7 @@ func InitWorkspace(root string) error {
 		"shared/task_board.md":   "# Task Board\n\n*No tasks yet.*\n",
 		"shared/updates.md":      "# Updates\n\n*No updates yet.*\n",
 		"shared/escalations.md":  "# Escalations\n\nNo escalations filed.\n",
+		"shared/pips.md":         "# Performance Improvement Plans (PiP)\n\nNo PiP records.\n",
 		"shared/firings.md":      "# Firing Requests\n\nNo firing requests.\n",
 	}
 
@@ -125,6 +126,12 @@ func SyncInbox(root string, el *EmailLog, agentName string) error {
 func SyncEscalations(root string, el *EscalationLog) error {
 	content := el.Render()
 	return os.WriteFile(filepath.Join(root, "shared", "escalations.md"), []byte(content), 0o644)
+}
+
+// SyncPiPs writes PiP records to shared/pips.md.
+func SyncPiPs(root string, pl *PiPLog) error {
+	content := pl.Render()
+	return os.WriteFile(filepath.Join(root, "shared", "pips.md"), []byte(content), 0o644)
 }
 
 // SyncFirings writes firing requests to shared/firings.md.

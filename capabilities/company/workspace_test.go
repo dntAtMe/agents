@@ -20,6 +20,7 @@ func TestInitWorkspace(t *testing.T) {
 		"shared/decisions.md",
 		"shared/task_board.md",
 		"shared/updates.md",
+		"shared/pips.md",
 	} {
 		if _, err := os.Stat(filepath.Join(root, f)); err != nil {
 			t.Errorf("expected %s to exist: %v", f, err)

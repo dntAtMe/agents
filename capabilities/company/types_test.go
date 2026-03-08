@@ -129,3 +129,29 @@ func TestUpdateLog_DefaultChannel(t *testing.T) {
 		t.Errorf("expected default channel to be 'general', got %d updates", len(updates))
 	}
 }
+
+func TestPiPLog_AddAndRender(t *testing.T) {
+	pl := NewPiPLog()
+	id := pl.Add(
+		"backend-dev",
+		"architect",
+		"Repeatedly missing quality checks",
+		"Follow review checklist and resolve all critical comments",
+		6,
+		4,
+	)
+	if id != "PIP-001" {
+		t.Fatalf("expected PIP-001, got %s", id)
+	}
+
+	rendered := pl.Render()
+	if !strings.Contains(rendered, "PIP-001") {
+		t.Fatalf("expected rendered PiP ID, got: %s", rendered)
+	}
+	if !strings.Contains(rendered, "backend-dev") {
+		t.Fatalf("expected rendered target agent, got: %s", rendered)
+	}
+	if !strings.Contains(rendered, "**Review round:** 6") {
+		t.Fatalf("expected rendered review round, got: %s", rendered)
+	}
+}

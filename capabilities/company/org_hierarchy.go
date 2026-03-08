@@ -45,3 +45,32 @@ func (oh *OrgHierarchy) IsManager(agent string) bool {
 	defer oh.mu.Unlock()
 	return len(oh.ManagerOf[agent]) > 0
 }
+
+// IsInManagementChain returns true if target is a direct or indirect report of manager.
+func (oh *OrgHierarchy) IsInManagementChain(manager, target string) bool {
+	if manager == "" || target == "" || manager == target {
+		return false
+	}
+
+	oh.mu.Lock()
+	defer oh.mu.Unlock()
+
+	queue := append([]string{}, oh.ManagerOf[manager]...)
+	seen := make(map[string]bool)
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if seen[current] {
+			continue
+		}
+		seen[current] = true
+
+		if current == target {
+			return true
+		}
+
+		queue = append(queue, oh.ManagerOf[current]...)
+	}
+	return false
+}
