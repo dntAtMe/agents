@@ -30,9 +30,9 @@ type SimRuntime struct {
 
 // SimulationConfig controls the simulation loop.
 type SimulationConfig struct {
-	MaxRounds    int                                   // default 15
-	InitialState map[string]any                        // shared state
-	AgentOrder   []string                              // activation order per round
+	MaxRounds    int                                  // default 15
+	InitialState map[string]any                       // shared state
+	AgentOrder   []string                             // activation order per round
 	OnRoundEnd   func(round int, state map[string]any) // optional callback
 
 	// Tracing callbacks — all optional.
@@ -52,12 +52,12 @@ type SimulationResult struct {
 
 // AgentRunRecord captures a single agent activation within the simulation.
 type AgentRunRecord struct {
-	Round    int
-	Agent    string
-	Output   string
-	Idle     bool
-	Tokens   int32
-	Handoffs []string // agents that were called via handoff during this turn
+	Round     int
+	Agent     string
+	Output    string
+	Idle      bool
+	Tokens    int32
+	Handoffs  []string // agents that were called via handoff during this turn
 }
 
 // Simulate runs a round-based multi-agent simulation loop.

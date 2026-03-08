@@ -14,6 +14,11 @@ const (
 	KeySimRuntime     = "sim_runtime"
 	KeyEmails         = "emails"
 	KeyMeetings       = "meetings"
+	KeyRelationships  = "relationships"
+	KeyEscalations    = "escalations"
+	KeyFirings        = "firings"
+	KeyOrgHierarchy   = "org_hierarchy"
+	KeyFiredAgents    = "fired_agents"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -126,4 +131,62 @@ func GetWorkspaceRoot(state map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// GetRelationshipLog retrieves or creates the RelationshipLog in shared state.
+func GetRelationshipLog(state map[string]any) *RelationshipLog {
+	if v, ok := state[KeyRelationships]; ok {
+		if rl, ok := v.(*RelationshipLog); ok {
+			return rl
+		}
+	}
+	rl := NewRelationshipLog()
+	state[KeyRelationships] = rl
+	return rl
+}
+
+// GetEscalationLog retrieves or creates the EscalationLog in shared state.
+func GetEscalationLog(state map[string]any) *EscalationLog {
+	if v, ok := state[KeyEscalations]; ok {
+		if el, ok := v.(*EscalationLog); ok {
+			return el
+		}
+	}
+	el := NewEscalationLog()
+	state[KeyEscalations] = el
+	return el
+}
+
+// GetFiringLog retrieves or creates the FiringLog in shared state.
+func GetFiringLog(state map[string]any) *FiringLog {
+	if v, ok := state[KeyFirings]; ok {
+		if fl, ok := v.(*FiringLog); ok {
+			return fl
+		}
+	}
+	fl := NewFiringLog()
+	state[KeyFirings] = fl
+	return fl
+}
+
+// GetOrgHierarchy retrieves the OrgHierarchy from shared state, or nil if not set.
+func GetOrgHierarchy(state map[string]any) *OrgHierarchy {
+	if v, ok := state[KeyOrgHierarchy]; ok {
+		if oh, ok := v.(*OrgHierarchy); ok {
+			return oh
+		}
+	}
+	return nil
+}
+
+// GetFiredAgents returns the map of fired agents from state.
+func GetFiredAgents(state map[string]any) map[string]bool {
+	if v, ok := state[KeyFiredAgents]; ok {
+		if m, ok := v.(map[string]bool); ok {
+			return m
+		}
+	}
+	m := make(map[string]bool)
+	state[KeyFiredAgents] = m
+	return m
 }

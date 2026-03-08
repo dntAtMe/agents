@@ -128,11 +128,35 @@ func main() {
 		_ = os.WriteFile(personalityPath, []byte(fmt.Sprintf("# Personality: %s\n\n%s\n", p.Name, p.Description)), 0o644)
 	}
 
+	// --- Build Org Hierarchy ---
+	orgHierarchy := company.NewOrgHierarchy()
+	orgHierarchy.SetManager("product-manager", "ceo")
+	orgHierarchy.SetManager("cto", "ceo")
+	orgHierarchy.SetManager("project-manager", "ceo")
+	orgHierarchy.SetManager("architect", "cto")
+	orgHierarchy.SetManager("backend-dev", "architect")
+	orgHierarchy.SetManager("frontend-dev", "architect")
+	orgHierarchy.SetManager("devops", "architect")
+
 	// Shared tools for all agents
 	askAgent := company.AskAgentTool()
 	sendEmail := company.SendEmailTool()
 	checkInbox := company.CheckInboxTool()
 	replyEmail := company.ReplyEmailTool()
+
+	// Relationship tools (all agents)
+	viewRelationships := company.ViewRelationshipsTool()
+	updateRelationship := company.UpdateRelationshipTool()
+
+	// Escalation tools
+	fileEscalation := company.FileEscalationTool()
+	viewEscalations := company.ViewEscalationsTool()
+	respondToEscalation := company.RespondToEscalationTool()
+
+	// Firing tools
+	requestFire := company.RequestFireTool()
+	viewFireRequests := company.ViewFireRequestsTool()
+	approveFire := company.ApproveFireTool()
 
 	// Meeting tool — only non-leaf agents can call meetings
 	nonLeafAgents := []string{"ceo", "product-manager", "cto", "architect", "project-manager"}
@@ -153,6 +177,18 @@ func main() {
 		"Use send_email to send requests, status updates, or questions to colleagues. " +
 		"If you need a group meeting, ask your manager via ask_agent."
 
+	// Relationship & escalation instructions
+	relationshipInstruction := "Use view_relationships to see your relationship scores with colleagues. " +
+		"Use update_relationship to adjust scores based on interactions (delta -20 to +20). " +
+		"Use file_escalation to formally report a colleague's bad behavior to their manager. " +
+		"Your relationship scores influence your tone and cooperation level. " +
+		"Be authentic — lower scores mean less patience and willingness to help."
+	managerEscalationInstruction := "As a manager, use view_escalations to see escalations filed to you. " +
+		"Use respond_to_escalation to acknowledge, dismiss, or take action. " +
+		"Use request_fire to request firing a direct report if their behavior is unacceptable."
+	ceoFireInstruction := "As CEO, use view_fire_requests to see pending firing requests. " +
+		"Use approve_fire to approve or deny them."
+
 	// --- Register all 8 agents ---
 	registry := agent.NewRegistry()
 
@@ -171,7 +207,7 @@ func main() {
 					"You can change project direction mid-stream if needed.")).
 			Add(prompt.ToolUsage(
 				"Use ask_agent to directly message any team member for quick questions or clarifications. "+
-					meetingEmailInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction+"\n"+ceoFireInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -188,6 +224,14 @@ func main() {
 			checkInbox,
 			replyEmail,
 			callMeeting,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
+			viewEscalations,
+			respondToEscalation,
+			requestFire,
+			viewFireRequests,
+			approveFire,
 		).
 		HandoffTo("product-manager", "cto", "project-manager").
 		Build())
@@ -205,7 +249,7 @@ func main() {
 					"Use read_file to check existing documents. "+
 					"Use post_update to announce PRD updates. "+
 					"Use ask_agent to directly message team members for clarifications. "+
-					meetingEmailInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -220,6 +264,12 @@ func main() {
 			checkInbox,
 			replyEmail,
 			callMeeting,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
+			viewEscalations,
+			respondToEscalation,
+			requestFire,
 		).
 		Build())
 
@@ -238,7 +288,7 @@ func main() {
 					"Use log_decision for ADRs. Use read_task_board to check progress. "+
 					"Use post_update to announce technical decisions. "+
 					"Use ask_agent to directly message team members for quick technical questions. "+
-					meetingEmailInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -258,6 +308,12 @@ func main() {
 			checkInbox,
 			replyEmail,
 			callMeeting,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
+			viewEscalations,
+			respondToEscalation,
+			requestFire,
 		).
 		HandoffTo("architect").
 		Build())
@@ -279,7 +335,7 @@ func main() {
 					"Use post_update to announce review results on the 'reviews' channel. "+
 					"Use log_decision for architectural decisions. "+
 					"Use ask_agent to directly message developers for clarifications on their plans. "+
-					meetingEmailInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -299,6 +355,12 @@ func main() {
 			checkInbox,
 			replyEmail,
 			callMeeting,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
+			viewEscalations,
+			respondToEscalation,
+			requestFire,
 		).
 		HandoffTo("backend-dev", "frontend-dev", "devops").
 		Build())
@@ -316,7 +378,7 @@ func main() {
 					"Use read_task_board to review current state. "+
 					"Use post_update to announce task changes. "+
 					"Use ask_agent to directly message team members about blockers or status. "+
-					meetingEmailInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -333,6 +395,12 @@ func main() {
 			checkInbox,
 			replyEmail,
 			callMeeting,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
+			viewEscalations,
+			respondToEscalation,
+			requestFire,
 		).
 		Build())
 
@@ -354,7 +422,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use ask_agent to directly message the architect for quick feedback. "+
-					emailOnlyInstruction)).
+					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -371,6 +439,9 @@ func main() {
 			sendEmail,
 			checkInbox,
 			replyEmail,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
 		).
 		Build())
 
@@ -392,7 +463,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use ask_agent to directly message the architect for quick feedback. "+
-					emailOnlyInstruction)).
+					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -409,6 +480,9 @@ func main() {
 			sendEmail,
 			checkInbox,
 			replyEmail,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
 		).
 		Build())
 
@@ -430,7 +504,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use ask_agent to directly message the architect for quick feedback. "+
-					emailOnlyInstruction)).
+					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -447,6 +521,9 @@ func main() {
 			sendEmail,
 			checkInbox,
 			replyEmail,
+			viewRelationships,
+			updateRelationship,
+			fileEscalation,
 		).
 		Build())
 
@@ -467,12 +544,22 @@ func main() {
 	}
 
 	// Wrap tracer callbacks with TUI callbacks so both are called
+	// Build initial state with org hierarchy and relationship renderer
+	initialState := map[string]any{
+		"workspace_root":  workspaceRoot,
+		"project_name":    userPrompt,
+		company.KeyOrgHierarchy: orgHierarchy,
+		company.KeyFiredAgents:  map[string]bool{},
+	}
+
+	// Store relationship renderer as a closure (avoids circular import)
+	initialState["relationship_renderer"] = func(agentName string) string {
+		return company.GetRelationshipLog(initialState).RenderForAgent(agentName)
+	}
+
 	simConfig := &agent.SimulationConfig{
-		MaxRounds: 10,
-		InitialState: map[string]any{
-			"workspace_root": workspaceRoot,
-			"project_name":   userPrompt,
-		},
+		MaxRounds:    10,
+		InitialState: initialState,
 		AgentOrder: []string{
 			"ceo", "product-manager", "cto", "architect",
 			"project-manager", "backend-dev", "frontend-dev", "devops",

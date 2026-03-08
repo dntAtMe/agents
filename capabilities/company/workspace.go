@@ -50,6 +50,8 @@ func InitWorkspace(root string) error {
 		"shared/decisions.md":    "# Architectural Decision Records\n\n*No decisions yet.*\n",
 		"shared/task_board.md":   "# Task Board\n\n*No tasks yet.*\n",
 		"shared/updates.md":      "# Updates\n\n*No updates yet.*\n",
+		"shared/escalations.md":  "# Escalations\n\nNo escalations filed.\n",
+		"shared/firings.md":      "# Firing Requests\n\nNo firing requests.\n",
 	}
 
 	for _, a := range agentDirs {
@@ -117,4 +119,25 @@ func SyncInbox(root string, el *EmailLog, agentName string) error {
 	emails := el.Inbox(agentName, false, "")
 	content := el.RenderInbox(emails)
 	return os.WriteFile(filepath.Join(root, agentName, "inbox.md"), []byte(content), 0o644)
+}
+
+// SyncEscalations writes escalations to shared/escalations.md.
+func SyncEscalations(root string, el *EscalationLog) error {
+	content := el.Render()
+	return os.WriteFile(filepath.Join(root, "shared", "escalations.md"), []byte(content), 0o644)
+}
+
+// SyncFirings writes firing requests to shared/firings.md.
+func SyncFirings(root string, fl *FiringLog) error {
+	content := fl.Render()
+	return os.WriteFile(filepath.Join(root, "shared", "firings.md"), []byte(content), 0o644)
+}
+
+// SyncRelationships writes an agent's relationship scores to {agent}/relationships.md.
+func SyncRelationships(root string, rl *RelationshipLog, agentName string) error {
+	content := rl.RenderForAgent(agentName)
+	if content == "" {
+		content = "# Relationships\n\nNo relationship scores recorded yet.\n"
+	}
+	return os.WriteFile(filepath.Join(root, agentName, "relationships.md"), []byte(content), 0o644)
 }

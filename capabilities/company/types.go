@@ -2,6 +2,7 @@ package company
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -468,6 +469,379 @@ func (ul *UpdateLog) Render(channel string, sinceRound int) string {
 	}
 	if len(updates) == 0 {
 		sb.WriteString("No updates.\n")
+	}
+	return sb.String()
+}
+
+// --- Relationship types ---
+
+// ScoreChange records a single change to a relationship score.
+type ScoreChange struct {
+	OldScore int       `json:"old_score"`
+	NewScore int       `json:"new_score"`
+	Reason   string    `json:"reason"`
+	Round    int       `json:"round"`
+	Time     time.Time `json:"time"`
+}
+
+// RelationshipScore tracks the relationship between two agents.
+type RelationshipScore struct {
+	FromAgent   string        `json:"from_agent"`
+	ToAgent     string        `json:"to_agent"`
+	Score       int           `json:"score"`
+	LastUpdated time.Time     `json:"last_updated"`
+	History     []ScoreChange `json:"history"`
+}
+
+// RelationshipLog holds all relationship scores with thread-safe access.
+type RelationshipLog struct {
+	mu     sync.Mutex
+	Scores map[string]map[string]*RelationshipScore // from -> to -> score
+}
+
+// NewRelationshipLog creates an empty relationship log.
+func NewRelationshipLog() *RelationshipLog {
+	return &RelationshipLog{
+		Scores: make(map[string]map[string]*RelationshipScore),
+	}
+}
+
+// GetScore returns the score from one agent to another. Default is 50.
+func (rl *RelationshipLog) GetScore(from, to string) int {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if m, ok := rl.Scores[from]; ok {
+		if rs, ok := m[to]; ok {
+			return rs.Score
+		}
+	}
+	return 50
+}
+
+// AdjustScore changes the score from one agent to another by delta, clamped to [-100, +100].
+func (rl *RelationshipLog) AdjustScore(from, to string, delta int, reason string, round int) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if _, ok := rl.Scores[from]; !ok {
+		rl.Scores[from] = make(map[string]*RelationshipScore)
+	}
+	rs, ok := rl.Scores[from][to]
+	if !ok {
+		rs = &RelationshipScore{
+			FromAgent: from,
+			ToAgent:   to,
+			Score:     50,
+		}
+		rl.Scores[from][to] = rs
+	}
+
+	oldScore := rs.Score
+	newScore := oldScore + delta
+	if newScore > 100 {
+		newScore = 100
+	}
+	if newScore < -100 {
+		newScore = -100
+	}
+	rs.Score = newScore
+	rs.LastUpdated = time.Now()
+	rs.History = append(rs.History, ScoreChange{
+		OldScore: oldScore,
+		NewScore: newScore,
+		Reason:   reason,
+		Round:    round,
+		Time:     time.Now(),
+	})
+}
+
+// GetAllScores returns all scores for a given agent.
+func (rl *RelationshipLog) GetAllScores(from string) map[string]int {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	result := make(map[string]int)
+	if m, ok := rl.Scores[from]; ok {
+		for to, rs := range m {
+			result[to] = rs.Score
+		}
+	}
+	return result
+}
+
+// RenderForAgent produces a markdown representation of an agent's relationships.
+func (rl *RelationshipLog) RenderForAgent(agent string) string {
+	scores := rl.GetAllScores(agent)
+	if len(scores) == 0 {
+		return ""
+	}
+
+	// Sort by agent name for deterministic output
+	names := make([]string, 0, len(scores))
+	for name := range scores {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var sb strings.Builder
+	sb.WriteString("## Your Relationship Scores\n\n")
+	for _, name := range names {
+		score := scores[name]
+		tier := relationshipTier(score)
+		sb.WriteString(fmt.Sprintf("- **%s**: %d/100 (%s)\n", name, score, tier))
+	}
+	sb.WriteString("\nYour relationship scores influence your tone and cooperation level. " +
+		"Be authentic — lower scores mean less patience and willingness to help.\n")
+	return sb.String()
+}
+
+// relationshipTier returns a human-readable description for a score.
+func relationshipTier(score int) string {
+	switch {
+	case score >= 70:
+		return "very positive — collaborative, extra mile"
+	case score >= 40:
+		return "neutral — professional"
+	case score >= 10:
+		return "strained — curt, minimal help"
+	default:
+		return "hostile — dismissive, uncooperative"
+	}
+}
+
+// --- Escalation types ---
+
+// Escalation represents a complaint filed about another agent.
+type Escalation struct {
+	ID         string    `json:"id"`
+	FromAgent  string    `json:"from_agent"`
+	AboutAgent string    `json:"about_agent"`
+	ToManager  string    `json:"to_manager"`
+	Reason     string    `json:"reason"`
+	Evidence   string    `json:"evidence"`
+	Round      int       `json:"round"`
+	Time       time.Time `json:"time"`
+	Status     string    `json:"status"`     // pending, acknowledged, dismissed, action_taken
+	Resolution string    `json:"resolution"` // manager's response
+}
+
+// EscalationLog holds all escalations with thread-safe access.
+type EscalationLog struct {
+	mu          sync.Mutex
+	Escalations []Escalation `json:"escalations"`
+	counter     int
+}
+
+// NewEscalationLog creates an empty escalation log.
+func NewEscalationLog() *EscalationLog {
+	return &EscalationLog{}
+}
+
+// Add creates a new escalation and returns its ID.
+func (el *EscalationLog) Add(fromAgent, aboutAgent, toManager, reason, evidence string, round int) string {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	el.counter++
+	id := fmt.Sprintf("ESC-%03d", el.counter)
+	el.Escalations = append(el.Escalations, Escalation{
+		ID:         id,
+		FromAgent:  fromAgent,
+		AboutAgent: aboutAgent,
+		ToManager:  toManager,
+		Reason:     reason,
+		Evidence:   evidence,
+		Round:      round,
+		Time:       time.Now(),
+		Status:     "pending",
+	})
+	return id
+}
+
+// UpdateStatus updates the status and resolution of an escalation.
+func (el *EscalationLog) UpdateStatus(id, status, resolution string) error {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	for i := range el.Escalations {
+		if el.Escalations[i].ID == id {
+			el.Escalations[i].Status = status
+			el.Escalations[i].Resolution = resolution
+			return nil
+		}
+	}
+	return fmt.Errorf("escalation %q not found", id)
+}
+
+// GetPendingFor returns pending escalations assigned to a given manager.
+func (el *EscalationLog) GetPendingFor(manager string) []Escalation {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	var result []Escalation
+	for _, e := range el.Escalations {
+		if e.ToManager == manager && e.Status == "pending" {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// GetAllFor returns all escalations assigned to a given manager.
+func (el *EscalationLog) GetAllFor(manager string) []Escalation {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	var result []Escalation
+	for _, e := range el.Escalations {
+		if e.ToManager == manager {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// GetByID returns an escalation by its ID.
+func (el *EscalationLog) GetByID(id string) (Escalation, bool) {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	for _, e := range el.Escalations {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return Escalation{}, false
+}
+
+// Render produces a markdown representation of all escalations.
+func (el *EscalationLog) Render() string {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString("# Escalations\n\n")
+	if len(el.Escalations) == 0 {
+		sb.WriteString("No escalations filed.\n")
+		return sb.String()
+	}
+	for _, e := range el.Escalations {
+		sb.WriteString(fmt.Sprintf("## %s\n\n", e.ID))
+		sb.WriteString(fmt.Sprintf("**Filed by:** %s\n", e.FromAgent))
+		sb.WriteString(fmt.Sprintf("**About:** %s\n", e.AboutAgent))
+		sb.WriteString(fmt.Sprintf("**To manager:** %s\n", e.ToManager))
+		sb.WriteString(fmt.Sprintf("**Reason:** %s\n", e.Reason))
+		if e.Evidence != "" {
+			sb.WriteString(fmt.Sprintf("**Evidence:** %s\n", e.Evidence))
+		}
+		sb.WriteString(fmt.Sprintf("**Status:** %s\n", e.Status))
+		if e.Resolution != "" {
+			sb.WriteString(fmt.Sprintf("**Resolution:** %s\n", e.Resolution))
+		}
+		sb.WriteString(fmt.Sprintf("**Round:** %d\n\n---\n\n", e.Round))
+	}
+	return sb.String()
+}
+
+// --- Firing types ---
+
+// FiringRecord represents a request to fire an agent.
+type FiringRecord struct {
+	ID          string    `json:"id"`
+	TargetAgent string    `json:"target_agent"`
+	RequestedBy string    `json:"requested_by"`
+	Reason      string    `json:"reason"`
+	CEOApproval string    `json:"ceo_approval"` // pending, approved, denied
+	CEOComments string    `json:"ceo_comments"`
+	Round       int       `json:"round"`
+	Time        time.Time `json:"time"`
+}
+
+// FiringLog holds all firing requests with thread-safe access.
+type FiringLog struct {
+	mu       sync.Mutex
+	Requests []FiringRecord `json:"requests"`
+	counter  int
+	Fired    map[string]bool `json:"fired"`
+}
+
+// NewFiringLog creates an empty firing log.
+func NewFiringLog() *FiringLog {
+	return &FiringLog{
+		Fired: make(map[string]bool),
+	}
+}
+
+// RequestFire creates a new firing request and returns its ID.
+func (fl *FiringLog) RequestFire(targetAgent, requestedBy, reason string, round int) string {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	fl.counter++
+	id := fmt.Sprintf("FIRE-%03d", fl.counter)
+	fl.Requests = append(fl.Requests, FiringRecord{
+		ID:          id,
+		TargetAgent: targetAgent,
+		RequestedBy: requestedBy,
+		Reason:      reason,
+		CEOApproval: "pending",
+		Round:       round,
+		Time:        time.Now(),
+	})
+	return id
+}
+
+// CEODecision records the CEO's decision on a firing request.
+func (fl *FiringLog) CEODecision(id, decision, comments string) error {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	for i := range fl.Requests {
+		if fl.Requests[i].ID == id {
+			fl.Requests[i].CEOApproval = decision
+			fl.Requests[i].CEOComments = comments
+			if decision == "approved" {
+				fl.Fired[fl.Requests[i].TargetAgent] = true
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("firing request %q not found", id)
+}
+
+// IsFired returns true if an agent has been fired.
+func (fl *FiringLog) IsFired(agent string) bool {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	return fl.Fired[agent]
+}
+
+// GetPendingApprovals returns all pending firing requests.
+func (fl *FiringLog) GetPendingApprovals() []FiringRecord {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+	var result []FiringRecord
+	for _, r := range fl.Requests {
+		if r.CEOApproval == "pending" {
+			result = append(result, r)
+		}
+	}
+	return result
+}
+
+// Render produces a markdown representation of all firing requests.
+func (fl *FiringLog) Render() string {
+	fl.mu.Lock()
+	defer fl.mu.Unlock()
+
+	var sb strings.Builder
+	sb.WriteString("# Firing Requests\n\n")
+	if len(fl.Requests) == 0 {
+		sb.WriteString("No firing requests.\n")
+		return sb.String()
+	}
+	for _, r := range fl.Requests {
+		sb.WriteString(fmt.Sprintf("## %s\n\n", r.ID))
+		sb.WriteString(fmt.Sprintf("**Target:** %s\n", r.TargetAgent))
+		sb.WriteString(fmt.Sprintf("**Requested by:** %s\n", r.RequestedBy))
+		sb.WriteString(fmt.Sprintf("**Reason:** %s\n", r.Reason))
+		sb.WriteString(fmt.Sprintf("**CEO Decision:** %s\n", r.CEOApproval))
+		if r.CEOComments != "" {
+			sb.WriteString(fmt.Sprintf("**CEO Comments:** %s\n", r.CEOComments))
+		}
+		sb.WriteString(fmt.Sprintf("**Round:** %d\n\n---\n\n", r.Round))
 	}
 	return sb.String()
 }

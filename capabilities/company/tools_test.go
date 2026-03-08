@@ -444,3 +444,69 @@ func TestPathTraversal(t *testing.T) {
 		t.Error("expected error for path traversal")
 	}
 }
+
+func TestFileEscalationRoutesToSuperiorWhenCallerWouldReceiveIt(t *testing.T) {
+	_, state := setupTestWorkspace(t)
+	ctx := context.Background()
+
+	oh := NewOrgHierarchy()
+	oh.SetManager("cto", "ceo")
+	oh.SetManager("architect", "cto")
+	oh.SetManager("backend-dev", "architect")
+
+	state[KeyOrgHierarchy] = oh
+	state[KeyCurrentAgent] = "architect"
+	state[KeyCurrentRound] = 2
+
+	ft := FileEscalationTool()
+	result, err := ft.Execute(ctx, map[string]any{
+		"about_agent": "backend-dev",
+		"reason":      "Repeatedly ignored required architecture constraints.",
+		"evidence":    "Ignored review comments in TASK-003 plan.",
+	}, state)
+	if err != nil {
+		t.Fatalf("file escalation: %v", err)
+	}
+
+	if result["to_manager"] != "cto" {
+		t.Fatalf("expected escalation to be routed to cto, got %v", result["to_manager"])
+	}
+
+	esc := GetEscalationLog(state)
+	if len(esc.Escalations) != 1 {
+		t.Fatalf("expected 1 escalation, got %d", len(esc.Escalations))
+	}
+	if esc.Escalations[0].ToManager != "cto" {
+		t.Fatalf("expected escalation manager cto, got %s", esc.Escalations[0].ToManager)
+	}
+}
+
+func TestFileEscalationRejectsSelfRoutingWithoutSuperior(t *testing.T) {
+	_, state := setupTestWorkspace(t)
+	ctx := context.Background()
+
+	oh := NewOrgHierarchy()
+	oh.SetManager("cto", "ceo")
+
+	state[KeyOrgHierarchy] = oh
+	state[KeyCurrentAgent] = "ceo"
+	state[KeyCurrentRound] = 2
+
+	ft := FileEscalationTool()
+	result, err := ft.Execute(ctx, map[string]any{
+		"about_agent": "cto",
+		"reason":      "Escalation loop check",
+		"evidence":    "Test evidence",
+	}, state)
+	if err != nil {
+		t.Fatalf("file escalation: %v", err)
+	}
+
+	errMsg, ok := result["error"].(string)
+	if !ok {
+		t.Fatalf("expected error for self-routing escalation, got %v", result)
+	}
+	if !strings.Contains(errMsg, "no superior") {
+		t.Fatalf("expected 'no superior' error, got %q", errMsg)
+	}
+}
