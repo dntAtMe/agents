@@ -125,7 +125,7 @@ func main() {
 		p := personalities[name]
 		personalityPath := filepath.Join(workspaceRoot, name, "personality.md")
 		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
-		_ = os.WriteFile(personalityPath, []byte(fmt.Sprintf("# Personality: %s\n\n%s\n", p.Name, p.Description)), 0o644)
+		_ = os.WriteFile(personalityPath, []byte(fmt.Sprintf("# Personality: %s\n\n**Work ethic:** %s\n\n%s\n", p.Name, p.WorkEthic, p.Description)), 0o644)
 	}
 
 	// --- Build Org Hierarchy ---
@@ -255,7 +255,7 @@ func main() {
 				"Use write_file to create/update shared/prd.md. "+
 					"Use read_file to check existing documents. "+
 					"Use post_update to announce PRD updates. "+
-										meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -295,7 +295,7 @@ func main() {
 				"Use write_file for shared/architecture.md. "+
 					"Use log_decision for ADRs. Use read_task_board to check progress. "+
 					"Use post_update to announce technical decisions. "+
-										meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -343,7 +343,7 @@ func main() {
 					"Use write_review to approve or request changes on implementation plans. "+
 					"Use post_update to announce review results on the 'reviews' channel. "+
 					"Use log_decision for architectural decisions. "+
-										meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -392,7 +392,7 @@ func main() {
 					"Use read_task_board to review current state and check for overdue tasks. "+
 					"Use post_update to announce sprint status. "+
 					"Use send_email with urgent=true to chase developers on overdue or stalled tasks. "+
-										meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -439,7 +439,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use write_review to review tasks when you are the assigned reviewer. "+
-										emailOnlyInstruction+"\n"+relationshipInstruction)).
+					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -483,7 +483,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use write_review to review tasks when you are the assigned reviewer. "+
-										emailOnlyInstruction+"\n"+relationshipInstruction)).
+					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -527,7 +527,7 @@ func main() {
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
 					"Use write_review to review tasks when you are the assigned reviewer. "+
-										emailOnlyInstruction+"\n"+relationshipInstruction)).
+					emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
 		Tools(
@@ -582,7 +582,7 @@ func main() {
 	}
 
 	simConfig := &agent.SimulationConfig{
-		MaxRounds:    10,
+		MaxRounds:    15,
 		InitialState: initialState,
 		AgentOrder: []string{
 			"ceo", "product-manager", "cto", "architect",

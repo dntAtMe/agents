@@ -14,7 +14,8 @@
       "Bash(powershell -ExecutionPolicy Bypass -File:*)",
       "Bash(go vet:*)",
       "Bash(go list:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ]
   }
 }
