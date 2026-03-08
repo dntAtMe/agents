@@ -17,6 +17,7 @@ import (
 	"github.com/dntatme/agents/capabilities/company"
 	"github.com/dntatme/agents/llm"
 	"github.com/dntatme/agents/prompt"
+	"github.com/dntatme/agents/trace"
 )
 
 func main() {
@@ -46,6 +47,14 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("Workspace: %s\n", workspaceRoot)
+
+	// Initialize tracer
+	tr, err := trace.New(filepath.Join(workspaceRoot, "trace.jsonl"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Tracer init error: %v\n", err)
+		os.Exit(1)
+	}
+	defer tr.Close()
 
 	// Shared diary instruction appended to all agent prompts
 	diaryInstruction := "At the end of your turn, always write a diary entry with write_diary. " +
@@ -94,9 +103,13 @@ func main() {
 	}
 
 	// Communication instructions
-	meetingEmailInstruction := "Use call_group_meeting to organize multi-agent discussions. " +
-		"Use send_email/check_inbox/reply_email for async communication."
-	emailOnlyInstruction := "Use send_email/check_inbox/reply_email for async communication. " +
+	meetingEmailInstruction := "Always check_inbox at the start of your turn — do not skip this. " +
+		"Read and reply to any emails that need a response before doing other work. " +
+		"Use send_email to send requests, status updates, or questions to colleagues. " +
+		"Use call_group_meeting to organize multi-agent discussions when needed."
+	emailOnlyInstruction := "Always check_inbox at the start of your turn — do not skip this. " +
+		"Read and reply to any emails that need a response before doing other work. " +
+		"Use send_email to send requests, status updates, or questions to colleagues. " +
 		"If you need a group meeting, ask your manager via ask_agent."
 
 	// --- Register all 8 agents ---
@@ -402,6 +415,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Attach tracer hooks to all agents
+	tracerHooks := tr.Hooks()
+	for _, name := range agentNames {
+		ag := registry.Lookup(name)
+		if ag != nil {
+			ag.Hooks = tracerHooks
+		}
+	}
+
 	fmt.Printf("Project: %s\n\n", userPrompt)
 
 	// Run simulation
@@ -418,6 +440,11 @@ func main() {
 		OnRoundEnd: func(round int, state map[string]any) {
 			log.Printf("=== Round %d complete ===\n", round)
 		},
+		OnSimulationStart: tr.SimulationStart,
+		OnSimulationEnd:   tr.SimulationEnd,
+		OnRoundStart:      tr.RoundStart,
+		OnAgentActivation: tr.AgentActivation,
+		OnAgentCompletion: tr.AgentCompletion,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Simulation error: %v\n", err)
@@ -452,4 +479,5 @@ func main() {
 	fmt.Println("  */personality.md       — Agent Personalities")
 	fmt.Println("  architect/reviews/     — Code Reviews")
 	fmt.Println("  src/                   — Generated Code")
+	fmt.Println("  trace.jsonl            — Event Trace")
 }

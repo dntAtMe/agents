@@ -27,6 +27,13 @@ type SimulationConfig struct {
 	InitialState map[string]any                       // shared state
 	AgentOrder   []string                             // activation order per round
 	OnRoundEnd   func(round int, state map[string]any) // optional callback
+
+	// Tracing callbacks — all optional.
+	OnSimulationStart func(prompt string, maxRounds int, agents []string)
+	OnSimulationEnd   func(totalRounds int, reason string)
+	OnRoundStart      func(round int)
+	OnAgentActivation func(round int, agentName string)
+	OnAgentCompletion func(round int, agentName string, result *RunResult, idle bool)
 }
 
 // SimulationResult captures the outcome of a full simulation.
@@ -87,6 +94,10 @@ func Simulate(
 	// Initialize agent_last_round tracking
 	if _, ok := state["agent_last_round"]; !ok {
 		state["agent_last_round"] = make(map[string]int)
+	}
+
+	if config.OnSimulationStart != nil {
+		config.OnSimulationStart(userPrompt, maxRounds, agentOrder)
 	}
 
 	predictor := NewLLMPredictor(client)
@@ -166,6 +177,10 @@ func Simulate(
 		log.Printf("[Simulation] === Round %d ===", round)
 		state["current_round"] = round
 
+		if config.OnRoundStart != nil {
+			config.OnRoundStart(round)
+		}
+
 		// Reset DM counts for this round
 		for _, name := range agentOrder {
 			state[fmt.Sprintf("dm_count_%s_%d", name, round)] = 0
@@ -191,6 +206,10 @@ func Simulate(
 				}
 			}
 
+			if config.OnAgentActivation != nil {
+				config.OnAgentActivation(round, agentName)
+			}
+
 			// Build activation prompt
 			lastRound := agentLastRound[agentName]
 			activationPrompt := buildActivationPrompt(agentName, round, lastRound)
@@ -211,6 +230,10 @@ func Simulate(
 				allIdle = false
 			}
 
+			if config.OnAgentCompletion != nil {
+				config.OnAgentCompletion(round, agentName, result, idle)
+			}
+
 			allRuns = append(allRuns, AgentRunRecord{
 				Round:  round,
 				Agent:  agentName,
@@ -229,6 +252,9 @@ func Simulate(
 		// Check termination: all idle or project marked complete
 		if projectStatus, ok := state["project_status"].(string); ok && projectStatus == "complete" {
 			log.Printf("[Simulation] Project marked complete at round %d", round)
+			if config.OnSimulationEnd != nil {
+				config.OnSimulationEnd(round, "project_complete")
+			}
 			return &SimulationResult{
 				FinalState:  state,
 				TotalRounds: round,
@@ -238,6 +264,9 @@ func Simulate(
 
 		if allIdle && round > 1 {
 			log.Printf("[Simulation] All agents idle at round %d, ending simulation", round)
+			if config.OnSimulationEnd != nil {
+				config.OnSimulationEnd(round, "all_idle")
+			}
 			return &SimulationResult{
 				FinalState:  state,
 				TotalRounds: round,
@@ -252,6 +281,9 @@ func Simulate(
 	}
 
 	log.Printf("[Simulation] Reached maximum rounds (%d)", maxRounds)
+	if config.OnSimulationEnd != nil {
+		config.OnSimulationEnd(maxRounds, "max_rounds")
+	}
 	return &SimulationResult{
 		FinalState:  state,
 		TotalRounds: maxRounds,
@@ -301,6 +333,11 @@ func buildActivationPrompt(agentName string, round, lastRound int) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("[System: Round %d. You are %s.]\n\n", round, agentName))
+
+	sb.WriteString("IMPORTANT — Start your turn by checking your inbox with check_inbox.\n")
+	sb.WriteString("Emails from colleagues may contain requests, questions, or information you need to act on.\n")
+	sb.WriteString("Reply to any emails that need a response before moving on to other work.\n\n")
+
 	sb.WriteString("Check the workspace for updates, tasks, and notes relevant to your role.\n")
 
 	if lastRound > 0 {
