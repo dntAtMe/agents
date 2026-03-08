@@ -19,7 +19,7 @@ import (
 
 // Event wraps simulation events for the TUI message channel.
 type Event struct {
-	Type  string         // matches trace event types
+	Type  string // matches trace event types
 	Round int
 	Agent string
 	Data  map[string]any
@@ -90,6 +90,7 @@ type Model struct {
 	detailData   map[string]*agentDetail
 	detailScroll int
 	detailAgent  int // index into m.agents for selected agent in detail view
+	detailFollow bool
 }
 
 // New creates a new TUI model that reads events from the given channel.
@@ -134,10 +135,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.activeTab == tabDetail && m.detailScroll > 0 {
 				m.detailScroll--
+				m.detailFollow = false
 			}
 		case "down", "j":
 			if m.activeTab == tabDetail {
 				m.detailScroll++
+				m.detailFollow = false
+			}
+		case "f":
+			if m.activeTab == tabDetail {
+				m.detailFollow = !m.detailFollow
 			}
 		case "left", "h":
 			if m.activeTab == tabDetail && len(m.agents) > 0 {
@@ -432,7 +439,7 @@ func (m *Model) View() string {
 	} else {
 		hint := "  Press Tab to switch views, q to quit"
 		if m.activeTab == tabDetail {
-			hint = "  Tab: views  h/l: agent  j/k: scroll  q: quit"
+			hint = "  Tab: views  h/l: agent  j/k: scroll  f: follow  q: quit"
 		}
 		sections = append(sections, idleStyle.Render(hint))
 	}
@@ -684,6 +691,9 @@ func (m *Model) renderDetail() string {
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
+	if m.detailFollow {
+		m.detailScroll = maxScroll
+	}
 	if m.detailScroll > maxScroll {
 		m.detailScroll = maxScroll
 	}
@@ -701,6 +711,9 @@ func (m *Model) renderDetail() string {
 
 	if maxScroll > 0 {
 		scrollInfo := fmt.Sprintf("  [%d/%d]", m.detailScroll+1, maxScroll+1)
+		if m.detailFollow {
+			scrollInfo += " follow:on"
+		}
 		sb.WriteString(idleStyle.Render(scrollInfo))
 		sb.WriteString("\n")
 	}
