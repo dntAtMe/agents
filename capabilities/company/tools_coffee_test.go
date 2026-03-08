@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -17,10 +18,10 @@ func TestGetCoffeeRegistersAgent(t *testing.T) {
 	tracker.InitRound([]string{"backend-dev", "frontend-dev"})
 
 	state := map[string]any{
-		KeyWorkspaceRoot:  root,
-		KeyCurrentAgent:   "backend-dev",
-		KeyCurrentRound:   1,
-		KeyActionPoints:   tracker,
+		KeyWorkspaceRoot: root,
+		KeyCurrentAgent:  "backend-dev",
+		KeyCurrentRound:  1,
+		KeyActionPoints:  tracker,
 	}
 
 	tool := GetCoffeeTool()
@@ -68,7 +69,7 @@ func TestGetCoffeeShowsOthers(t *testing.T) {
 	}
 
 	// Should mention frontend-dev
-	if !containsString(msg, "frontend-dev") {
+	if !strings.Contains(msg, "frontend-dev") {
 		t.Errorf("expected message to mention frontend-dev, got: %s", msg)
 	}
 }
@@ -123,28 +124,43 @@ func TestRunCoffeeBreakWithParticipants(t *testing.T) {
 	}
 
 	content := string(data)
-	if !containsString(content, "Coffee Break") {
+	if !strings.Contains(content, "Coffee Break") {
 		t.Error("expected transcript to contain 'Coffee Break'")
 	}
-	if !containsString(content, "alice") || !containsString(content, "bob") {
+	if !strings.Contains(content, "alice") || !strings.Contains(content, "bob") {
 		t.Error("expected transcript to contain participant names")
 	}
 
-	// Coffee registrations should be cleared
+	// Coffee registrations should still be in CoffeeNext (cleared by InitRound, not RunCoffeeBreak)
+	// The bonus persists until InitRound applies and clears it
 	participants := tracker.CoffeeParticipants()
-	if len(participants) != 0 {
-		t.Errorf("expected coffee registrations to be cleared, got %d", len(participants))
+	if len(participants) != 2 {
+		t.Errorf("expected coffee registrations to persist (cleared by InitRound), got %d", len(participants))
 	}
 }
 
-func TestRunCoffeeBreakTooFewParticipants(t *testing.T) {
+func TestRunCoffeeBreakSetsToolRestriction(t *testing.T) {
+	root := t.TempDir()
+	if err := InitWorkspace(root); err != nil {
+		t.Fatalf("InitWorkspace: %v", err)
+	}
+
 	tracker := NewActionPointTracker(15, 5, 3)
-	tracker.RegisterCoffee("alice") // only one person
+	tracker.RegisterCoffee("alice")
+	tracker.RegisterCoffee("bob")
+
+	var toolsRestrictionDuringBreak map[string]bool
 
 	state := map[string]any{
-		KeyCurrentAgent: "alice",
-		KeyCurrentRound: 1,
-		KeyActionPoints: tracker,
+		KeyWorkspaceRoot: root,
+		KeyCurrentAgent:  "alice",
+		KeyCurrentRound:  1,
+		KeyActionPoints:  tracker,
+		"sim_run_agent": func(ctx context.Context, targetName, message string, state map[string]any) (string, error) {
+			// Capture what tools are allowed during the coffee break
+			toolsRestrictionDuringBreak = GetAllowedTools(state)
+			return "Just chatting!", nil
+		},
 	}
 
 	err := RunCoffeeBreak(context.Background(), state)
@@ -152,7 +168,67 @@ func TestRunCoffeeBreakTooFewParticipants(t *testing.T) {
 		t.Fatalf("RunCoffeeBreak: %v", err)
 	}
 
-	// Should be a no-op — no crash, no file
+	// During break, only relationship tools should be allowed
+	if toolsRestrictionDuringBreak == nil {
+		t.Fatal("expected tool restriction to be set during coffee break")
+	}
+	if !toolsRestrictionDuringBreak["view_relationships"] {
+		t.Error("expected view_relationships to be allowed during break")
+	}
+	if !toolsRestrictionDuringBreak["update_relationship"] {
+		t.Error("expected update_relationship to be allowed during break")
+	}
+	if toolsRestrictionDuringBreak["send_email"] {
+		t.Error("send_email should be restricted during break")
+	}
+
+	// After break, restriction should be cleared
+	if allowed := GetAllowedTools(state); allowed != nil {
+		t.Error("expected tool restriction to be cleared after coffee break")
+	}
+}
+
+func TestRunCoffeeBreakSoloSkipsConversation(t *testing.T) {
+	root := t.TempDir()
+	if err := InitWorkspace(root); err != nil {
+		t.Fatalf("InitWorkspace: %v", err)
+	}
+
+	tracker := NewActionPointTracker(15, 5, 3)
+	tracker.RegisterCoffee("alice") // only one person
+
+	agentCalled := false
+	state := map[string]any{
+		KeyWorkspaceRoot: root,
+		KeyCurrentAgent:  "alice",
+		KeyCurrentRound:  1,
+		KeyActionPoints:  tracker,
+		"sim_run_agent": func(ctx context.Context, targetName, message string, state map[string]any) (string, error) {
+			agentCalled = true
+			return "Hello", nil
+		},
+	}
+
+	err := RunCoffeeBreak(context.Background(), state)
+	if err != nil {
+		t.Fatalf("RunCoffeeBreak: %v", err)
+	}
+
+	if agentCalled {
+		t.Error("expected no agent to be called for solo coffee break")
+	}
+
+	// No transcript file should be created
+	transcriptPath := filepath.Join(root, "shared", "coffee", "round-1.md")
+	if _, err := os.Stat(transcriptPath); err == nil {
+		t.Error("expected no transcript file for solo coffee break")
+	}
+
+	// But registration should persist so InitRound grants the bonus
+	participants := tracker.CoffeeParticipants()
+	if len(participants) != 1 {
+		t.Errorf("expected 1 coffee participant to persist, got %d", len(participants))
+	}
 }
 
 func TestRunCoffeeBreakNoTracker(t *testing.T) {
@@ -161,17 +237,4 @@ func TestRunCoffeeBreakNoTracker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error with nil tracker, got: %v", err)
 	}
-}
-
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

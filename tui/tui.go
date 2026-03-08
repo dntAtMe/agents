@@ -41,6 +41,8 @@ type agentInfo struct {
 	Iterations int
 	ToolCount  int
 	LastTool   string
+	AP         int // remaining action points
+	MaxAP      int // max AP this round (for bar rendering)
 }
 
 type toolCallInfo struct {
@@ -48,6 +50,7 @@ type toolCallInfo struct {
 	Tool     string
 	Duration int64 // ms, 0 if still running
 	Done     bool
+	APCost   int // action point cost of this tool call
 }
 
 type tab int
@@ -288,14 +291,19 @@ func (m *Model) handleEvent(ev Event) {
 			toolName = t
 		}
 		args, _ := ev.Data["args"].(string)
+		apCost := 0
+		if c, ok := ev.Data["ap_cost"].(int); ok {
+			apCost = c
+		}
 		info := m.agentStatus[ev.Agent]
 		info.ToolCount++
 		info.LastTool = toolName
 		m.agentStatus[ev.Agent] = info
 		m.appendToolCall(toolCallInfo{
-			Agent: ev.Agent,
-			Tool:  toolName,
-			Done:  false,
+			Agent:  ev.Agent,
+			Tool:   toolName,
+			Done:   false,
+			APCost: apCost,
 		})
 		m.appendDetail(ev.Agent, detailEntry{
 			Time:    ts,
@@ -328,6 +336,26 @@ func (m *Model) handleEvent(ev Event) {
 			Tool:    toolName,
 			Content: fmt.Sprintf("%dms | %s", dur, result),
 		})
+
+	case "ap_update":
+		info := m.agentStatus[ev.Agent]
+		if ap, ok := ev.Data["remaining"].(int); ok {
+			info.AP = ap
+		}
+		if maxAP, ok := ev.Data["max_ap"].(int); ok {
+			info.MaxAP = maxAP
+		}
+		m.agentStatus[ev.Agent] = info
+
+		// If this update was triggered by a tool call, tag the most recent pending tool call with cost
+		if cost, ok := ev.Data["cost"].(int); ok && cost > 0 {
+			for i := len(m.toolCalls) - 1; i >= 0; i-- {
+				if !m.toolCalls[i].Done && m.toolCalls[i].APCost == 0 {
+					m.toolCalls[i].APCost = cost
+					break
+				}
+			}
+		}
 
 	case "channel_closed":
 		m.done = true
@@ -419,6 +447,18 @@ var (
 
 	tabInactiveStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("8"))
+
+	energyHighStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")) // green
+
+	energyMidStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11")) // yellow
+
+	energyLowStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("9")) // red
+
+	energyEmptyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("8")) // dim
 )
 
 // View renders the TUI dashboard.
@@ -528,7 +568,13 @@ func (m *Model) renderAgents() string {
 			style = pendingStyle
 		}
 
-		label := fmt.Sprintf("%s %-16s %s", icon, name, info.Status)
+		label := fmt.Sprintf("%s %-16s %-7s", icon, name, info.Status)
+
+		// Energy bar
+		if info.MaxAP > 0 {
+			label += "  " + renderEnergyBar(info.AP, info.MaxAP)
+		}
+
 		if info.Tokens > 0 {
 			if info.Tokens >= 1000 {
 				label += fmt.Sprintf("  %.1fk tok", float64(info.Tokens)/1000)
@@ -563,11 +609,16 @@ func (m *Model) renderToolCalls() string {
 			toolDisplay = toolDisplay[:14] + ".."
 		}
 
+		apTag := ""
+		if tc.APCost > 0 {
+			apTag = fmt.Sprintf("  -%dAP", tc.APCost)
+		}
+
 		if tc.Done {
-			line := fmt.Sprintf("  > %-16s %dms", toolDisplay, tc.Duration)
+			line := fmt.Sprintf("  > %-16s %4dms%s", toolDisplay, tc.Duration, apTag)
 			sb.WriteString(toolDone.Render(line))
 		} else {
-			line := fmt.Sprintf("  * %-16s ...", toolDisplay)
+			line := fmt.Sprintf("  * %-16s ...%s", toolDisplay, apTag)
 			sb.WriteString(toolRunning.Render(line))
 		}
 		sb.WriteString("\n")
@@ -645,7 +696,11 @@ func (m *Model) renderDetail() string {
 	if info.Iterations > 0 {
 		iterStr = fmt.Sprintf("  iter %d", info.Iterations)
 	}
-	agentHeader := fmt.Sprintf("◉ %s  %s%s%s", agentName, info.Status, iterStr, tokStr)
+	apStr := ""
+	if info.MaxAP > 0 {
+		apStr = "  " + renderEnergyBar(info.AP, info.MaxAP)
+	}
+	agentHeader := fmt.Sprintf("◉ %s  %s%s%s%s", agentName, info.Status, apStr, iterStr, tokStr)
 	sb.WriteString(activeStyle.Render(agentHeader))
 	sb.WriteString("\n")
 	sb.WriteString(strings.Repeat("─", m.width-6))
@@ -763,6 +818,44 @@ func wrapText(s string, width int) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+// renderEnergyBar draws a compact energy gauge like "⚡██░░ 8/15".
+func renderEnergyBar(current, max int) string {
+	if max <= 0 {
+		return ""
+	}
+
+	const barLen = 5
+	filled := 0
+	if current > 0 {
+		filled = (current * barLen) / max
+		if filled > barLen {
+			filled = barLen
+		}
+		if current > 0 && filled == 0 {
+			filled = 1 // show at least one block if any AP left
+		}
+	}
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barLen-filled)
+	label := fmt.Sprintf("%d/%d", current, max)
+
+	// Pick color based on ratio
+	var style lipgloss.Style
+	ratio := float64(current) / float64(max)
+	switch {
+	case ratio > 0.5:
+		style = energyHighStyle
+	case ratio > 0.2:
+		style = energyMidStyle
+	case current > 0:
+		style = energyLowStyle
+	default:
+		style = energyEmptyStyle
+	}
+
+	return style.Render("⚡" + bar + " " + label)
 }
 
 func formatArgs(args map[string]any) string {

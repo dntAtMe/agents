@@ -10,7 +10,7 @@ import (
 
 // RunCoffeeBreak runs a casual coffee break chat between agents who called get_coffee.
 // It is called from OnBetweenRounds after a round ends.
-// If fewer than 2 participants signed up, it's a no-op.
+// If fewer than 2 participants signed up, it's a no-op (bonus still applies next round).
 func RunCoffeeBreak(ctx context.Context, state map[string]any) error {
 	tracker := GetActionPointTracker(state)
 	if tracker == nil {
@@ -19,7 +19,7 @@ func RunCoffeeBreak(ctx context.Context, state map[string]any) error {
 
 	participants := tracker.CoffeeParticipants()
 	if len(participants) < 2 {
-		// Can't have a coffee break alone — still grant the bonus though
+		// Solo coffee: skip conversation, bonus still applies via InitRound next round
 		return nil
 	}
 
@@ -32,6 +32,10 @@ func RunCoffeeBreak(ctx context.Context, state map[string]any) error {
 	if !ok {
 		return nil
 	}
+
+	// Restrict tools during coffee break to relationship tools only
+	SetAllowedTools(state, AllowedToolsCoffeeBreak)
+	defer SetAllowedTools(state, nil)
 
 	var transcriptText strings.Builder
 	transcriptText.WriteString(fmt.Sprintf("# Coffee Break — After Round %d\n\n", round))
@@ -46,7 +50,8 @@ func RunCoffeeBreak(ctx context.Context, state map[string]any) error {
 				"[Coffee Break after Round %d, Chat Round %d/2]\n"+
 					"You're at the coffee machine with: %s.\n"+
 					"Chat casually — gossip about work, vent, joke around. Be authentic to your personality.\n"+
-					"Keep it short (2-3 sentences max).\n\n"+
+					"Keep it short (2-3 sentences max).\n"+
+					"You can use view_relationships and update_relationship if you want, but mostly just chat.\n\n"+
 					"Conversation so far:\n%s",
 				round, r, strings.Join(participants, ", "), transcriptText.String(),
 			)
@@ -72,10 +77,6 @@ func RunCoffeeBreak(ctx context.Context, state map[string]any) error {
 		filename := fmt.Sprintf("round-%d.md", round)
 		_ = os.WriteFile(filepath.Join(coffeeDir, filename), []byte(transcriptText.String()), 0o644)
 	}
-
-	// Clear coffee registrations (bonus was already registered via RegisterCoffee,
-	// and will be applied in InitRound next round)
-	tracker.ClearCoffee()
 
 	return nil
 }

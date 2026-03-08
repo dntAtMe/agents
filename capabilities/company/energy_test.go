@@ -49,6 +49,24 @@ func TestInitRoundWithCoffeeBonus(t *testing.T) {
 	}
 }
 
+func TestInitRoundClearsCoffeeAfterApplying(t *testing.T) {
+	tracker := NewActionPointTracker(15, 5, 3)
+
+	tracker.RegisterCoffee("alice")
+
+	// First InitRound: bonus applied
+	tracker.InitRound([]string{"alice"})
+	if r := tracker.Remaining("alice"); r != 20 {
+		t.Errorf("expected 20, got %d", r)
+	}
+
+	// Second InitRound: bonus should NOT apply again (auto-cleared)
+	tracker.InitRound([]string{"alice"})
+	if r := tracker.Remaining("alice"); r != 15 {
+		t.Errorf("expected 15 (bonus cleared after first init), got %d", r)
+	}
+}
+
 func TestDeduct(t *testing.T) {
 	tracker := NewActionPointTracker(15, 5, 3)
 	tracker.InitRound([]string{"alice"})
@@ -77,6 +95,22 @@ func TestDeductUnknownAgent(t *testing.T) {
 	remaining := tracker.Deduct("unknown", 5)
 	if remaining != 10 {
 		t.Errorf("expected 10 (15-5), got %d", remaining)
+	}
+}
+
+func TestSetBudget(t *testing.T) {
+	tracker := NewActionPointTracker(15, 5, 3)
+	tracker.InitRound([]string{"alice"})
+
+	tracker.SetBudget("alice", 5)
+	if r := tracker.Remaining("alice"); r != 5 {
+		t.Errorf("expected 5 after SetBudget, got %d", r)
+	}
+
+	// Restore
+	tracker.SetBudget("alice", 15)
+	if r := tracker.Remaining("alice"); r != 15 {
+		t.Errorf("expected 15 after restore, got %d", r)
 	}
 }
 
@@ -110,25 +144,6 @@ func TestClearCoffee(t *testing.T) {
 	participants := tracker.CoffeeParticipants()
 	if len(participants) != 0 {
 		t.Errorf("expected 0 participants after clear, got %d", len(participants))
-	}
-}
-
-func TestCoffeeBonusAppliedOnceAndCleared(t *testing.T) {
-	tracker := NewActionPointTracker(15, 5, 3)
-
-	tracker.RegisterCoffee("alice")
-
-	// First round: alice gets bonus
-	tracker.InitRound([]string{"alice"})
-	if r := tracker.Remaining("alice"); r != 20 {
-		t.Errorf("expected 20, got %d", r)
-	}
-
-	// Clear coffee and init again: no bonus
-	tracker.ClearCoffee()
-	tracker.InitRound([]string{"alice"})
-	if r := tracker.Remaining("alice"); r != 15 {
-		t.Errorf("expected 15 after clear, got %d", r)
 	}
 }
 
@@ -170,5 +185,66 @@ func TestGetActionPointTrackerNil(t *testing.T) {
 	got := GetActionPointTracker(state)
 	if got != nil {
 		t.Error("expected nil when tracker not in state")
+	}
+}
+
+func TestAllowedToolsSets(t *testing.T) {
+	// Coffee break: only relationship tools
+	if !AllowedToolsCoffeeBreak["view_relationships"] {
+		t.Error("expected view_relationships in coffee break set")
+	}
+	if !AllowedToolsCoffeeBreak["update_relationship"] {
+		t.Error("expected update_relationship in coffee break set")
+	}
+	if AllowedToolsCoffeeBreak["send_email"] {
+		t.Error("send_email should not be in coffee break set")
+	}
+
+	// Urgent email: read-only + reply + diary
+	if !AllowedToolsUrgentEmail["check_inbox"] {
+		t.Error("expected check_inbox in urgent email set")
+	}
+	if !AllowedToolsUrgentEmail["reply_email"] {
+		t.Error("expected reply_email in urgent email set")
+	}
+	if !AllowedToolsUrgentEmail["read_file"] {
+		t.Error("expected read_file in urgent email set")
+	}
+	if !AllowedToolsUrgentEmail["write_diary"] {
+		t.Error("expected write_diary in urgent email set")
+	}
+	if AllowedToolsUrgentEmail["send_email"] {
+		t.Error("send_email should not be in urgent email set")
+	}
+	if AllowedToolsUrgentEmail["write_file"] {
+		t.Error("write_file should not be in urgent email set")
+	}
+	if AllowedToolsUrgentEmail["call_group_meeting"] {
+		t.Error("call_group_meeting should not be in urgent email set")
+	}
+}
+
+func TestSetAndGetAllowedTools(t *testing.T) {
+	state := map[string]any{}
+
+	// Initially nil
+	if got := GetAllowedTools(state); got != nil {
+		t.Error("expected nil initially")
+	}
+
+	// Set restriction
+	SetAllowedTools(state, AllowedToolsCoffeeBreak)
+	got := GetAllowedTools(state)
+	if got == nil {
+		t.Fatal("expected non-nil after setting")
+	}
+	if !got["view_relationships"] {
+		t.Error("expected view_relationships to be allowed")
+	}
+
+	// Clear restriction
+	SetAllowedTools(state, nil)
+	if got := GetAllowedTools(state); got != nil {
+		t.Error("expected nil after clearing")
 	}
 }

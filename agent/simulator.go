@@ -400,6 +400,15 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 		patience, patienceTier(patience),
 	))
 	sb.WriteString("Let this affect your behavior: as patience drops, be more direct, less accommodating, and quicker to escalate blockers.\n")
+	// Inject last diary entry for memory continuity
+	if diaryRenderer, ok := state["diary_renderer"].(func(string) string); ok {
+		if lastDiary := diaryRenderer(agentName); lastDiary != "" {
+			sb.WriteString("\nYour last diary entry (for continuity — do not repeat it, build on it):\n")
+			sb.WriteString(lastDiary)
+			sb.WriteString("\n")
+		}
+	}
+
 	sb.WriteString("\nAt the end of your turn, always write a diary entry with write_diary. Be honest and personal — reflect on your work, the project direction, and your thoughts about the team's work.\n")
 
 	// Inject action point budget info if available

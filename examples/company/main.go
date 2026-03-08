@@ -644,6 +644,13 @@ func main() {
 	tracerHooks := tr.Hooks()
 	apHooks := &agent.Hooks{
 		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+			// Enforce tool restrictions (coffee break, urgent email)
+			if allowed := company.GetAllowedTools(hc.State); allowed != nil {
+				if !allowed[fc.Name] {
+					return fmt.Errorf("TOOL RESTRICTED: %s is not available right now", fc.Name)
+				}
+			}
+
 			agentName := company.GetCurrentAgent(hc.State)
 			cost := company.GetToolCost(fc.Name)
 			remaining := apTracker.Remaining(agentName)
@@ -655,6 +662,18 @@ func main() {
 
 			// Deduct cost
 			apTracker.Deduct(agentName, cost)
+
+			// Send AP cost to TUI (enriches the tool_call_start event data)
+			events <- tui.Event{
+				Type:  "ap_update",
+				Agent: agentName,
+				Data: map[string]any{
+					"remaining": apTracker.Remaining(agentName),
+					"max_ap":    apTracker.DefaultAP,
+					"tool":      fc.Name,
+					"cost":      cost,
+				},
+			}
 			return nil
 		},
 		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
@@ -692,6 +711,11 @@ func main() {
 	// Store relationship renderer as a closure (avoids circular import)
 	initialState["relationship_renderer"] = func(agentName string) string {
 		return company.GetRelationshipLog(initialState).RenderForAgent(agentName)
+	}
+
+	// Store diary renderer for memory continuity between rounds
+	initialState["diary_renderer"] = func(agentName string) string {
+		return company.LastDiaryEntry(workspaceRoot, agentName)
 	}
 
 	// Store AP renderer for activation prompts
@@ -735,6 +759,15 @@ func main() {
 		OnAgentActivation: func(round int, agentName string) {
 			tr.AgentActivation(round, agentName)
 			tuiCb.OnAgentActivation(round, agentName)
+			// Send initial AP to TUI
+			events <- tui.Event{
+				Type:  "ap_update",
+				Agent: agentName,
+				Data: map[string]any{
+					"remaining": apTracker.Remaining(agentName),
+					"max_ap":    apTracker.DefaultAP,
+				},
+			}
 		},
 		OnAgentCompletion: func(round int, agentName string, result *agent.RunResult, idle bool) {
 			tr.AgentCompletion(round, agentName, result, idle)

@@ -23,7 +23,8 @@ func NewActionPointTracker(defaultAP, bonusAP, hardCap int) *ActionPointTracker 
 	}
 }
 
-// InitRound resets budgets for all agents, applying coffee bonuses from last round.
+// InitRound resets budgets for all agents, applying coffee bonuses from last round,
+// then clears the coffee bonus registrations so they don't carry over.
 func (t *ActionPointTracker) InitRound(agents []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -35,6 +36,16 @@ func (t *ActionPointTracker) InitRound(agents []string) {
 		}
 		t.Budgets[agent] = budget
 	}
+	// Clear after applying so bonuses are one-shot
+	t.CoffeeNext = make(map[string]bool)
+}
+
+// SetBudget explicitly sets an agent's AP budget (used for urgent email activations).
+func (t *ActionPointTracker) SetBudget(agent string, amount int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.Budgets[agent] = amount
 }
 
 // Remaining returns the remaining AP for an agent.

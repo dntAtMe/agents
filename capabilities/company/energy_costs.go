@@ -38,3 +38,52 @@ func GetToolCost(toolName string) int {
 	}
 	return 2
 }
+
+// AllowedToolsCoffeeBreak is the set of tools available during a coffee break.
+var AllowedToolsCoffeeBreak = map[string]bool{
+	"view_relationships":  true,
+	"update_relationship": true,
+}
+
+// AllowedToolsUrgentEmail is the set of tools available when an agent
+// is woken up out of turn by an urgent email.
+var AllowedToolsUrgentEmail = map[string]bool{
+	// Read-only (gather context)
+	"check_inbox":        true,
+	"read_file":          true,
+	"list_files":         true,
+	"read_task_board":    true,
+	"read_updates":       true,
+	"read_decisions":     true,
+	"view_relationships": true,
+	"view_escalations":   true,
+	"view_fire_requests": true,
+	// Respond
+	"reply_email": true,
+	// Reflect
+	"write_diary": true,
+}
+
+// KeyAllowedTools is the state key for the current tool restriction set.
+// When non-nil (map[string]bool), only listed tools may be called.
+const KeyAllowedTools = "allowed_tools"
+
+// SetAllowedTools sets a tool restriction on shared state.
+// Pass nil to remove the restriction.
+func SetAllowedTools(state map[string]any, allowed map[string]bool) {
+	if allowed == nil {
+		delete(state, KeyAllowedTools)
+	} else {
+		state[KeyAllowedTools] = allowed
+	}
+}
+
+// GetAllowedTools returns the current tool restriction, or nil if unrestricted.
+func GetAllowedTools(state map[string]any) map[string]bool {
+	if v, ok := state[KeyAllowedTools]; ok {
+		if m, ok := v.(map[string]bool); ok {
+			return m
+		}
+	}
+	return nil
+}

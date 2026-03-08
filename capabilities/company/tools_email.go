@@ -82,6 +82,7 @@ func SendEmailTool() tool.Tool {
 			if urgent {
 				runAgentFn, ok := state["sim_run_agent"].(func(ctx context.Context, targetName, message string, state map[string]any) (string, error))
 				if ok {
+					tracker := GetActionPointTracker(state)
 					var skipped []string
 					for _, target := range recipients {
 						if !el.CanSendUrgent(caller, target, round) {
@@ -90,12 +91,28 @@ func SendEmailTool() tool.Tool {
 						}
 						el.RecordUrgent(caller, target, round)
 						urgentPrompt := fmt.Sprintf(
-							"[URGENT email from %s: %s] Check your inbox immediately with check_inbox and respond to the urgent email.",
+							"[URGENT email from %s: %s] Check your inbox immediately with check_inbox and respond to the urgent email.\n"+
+								"You have been activated out of turn with limited AP (5) and restricted tools. Focus on reading and replying.",
 							caller, subject,
 						)
+
+						// Restrict tools and AP for urgent activation
+						var savedAP int
+						if tracker != nil {
+							savedAP = tracker.Remaining(target)
+							tracker.SetBudget(target, 5)
+						}
+						SetAllowedTools(state, AllowedToolsUrgentEmail)
 						state[KeyCurrentAgent] = target
+
 						_, _ = runAgentFn(ctx, target, urgentPrompt, state)
+
+						// Restore
 						state[KeyCurrentAgent] = caller
+						SetAllowedTools(state, nil)
+						if tracker != nil {
+							tracker.SetBudget(target, savedAP)
+						}
 					}
 					if len(skipped) > 0 {
 						return map[string]any{
@@ -203,6 +220,7 @@ func ReplyEmailTool() tool.Tool {
 			if urgent {
 				runAgentFn, ok := state["sim_run_agent"].(func(ctx context.Context, targetName, message string, state map[string]any) (string, error))
 				if ok {
+					tracker := GetActionPointTracker(state)
 					var skipped []string
 					for _, target := range reply.To {
 						if !el.CanSendUrgent(caller, target, round) {
@@ -211,12 +229,28 @@ func ReplyEmailTool() tool.Tool {
 						}
 						el.RecordUrgent(caller, target, round)
 						urgentPrompt := fmt.Sprintf(
-							"[URGENT email from %s: %s] Check your inbox immediately with check_inbox and respond to the urgent email.",
+							"[URGENT email from %s: %s] Check your inbox immediately with check_inbox and respond to the urgent email.\n"+
+								"You have been activated out of turn with limited AP (5) and restricted tools. Focus on reading and replying.",
 							caller, reply.Subject,
 						)
+
+						// Restrict tools and AP for urgent activation
+						var savedAP int
+						if tracker != nil {
+							savedAP = tracker.Remaining(target)
+							tracker.SetBudget(target, 5)
+						}
+						SetAllowedTools(state, AllowedToolsUrgentEmail)
 						state[KeyCurrentAgent] = target
+
 						_, _ = runAgentFn(ctx, target, urgentPrompt, state)
+
+						// Restore
 						state[KeyCurrentAgent] = caller
+						SetAllowedTools(state, nil)
+						if tracker != nil {
+							tracker.SetBudget(target, savedAP)
+						}
 					}
 					if len(skipped) > 0 {
 						return map[string]any{

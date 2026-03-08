@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dntatme/agents/tool"
 )
@@ -39,4 +40,30 @@ func WriteDiaryTool() tool.Tool {
 			return map[string]any{"status": "diary entry written", "round": round}, nil
 		}).
 		Build()
+}
+
+// LastDiaryEntry reads an agent's diary file and returns the last entry.
+// Returns empty string if the diary doesn't exist or has no entries.
+func LastDiaryEntry(root, agentName string) string {
+	diaryPath := filepath.Join(root, agentName, "diary.md")
+	data, err := os.ReadFile(diaryPath)
+	if err != nil {
+		return ""
+	}
+
+	content := string(data)
+
+	// Split on "### Round " headings to find entries
+	parts := strings.Split(content, "### Round ")
+	if len(parts) < 2 {
+		return ""
+	}
+
+	// Last non-empty part is the most recent entry
+	last := strings.TrimSpace(parts[len(parts)-1])
+	if last == "" {
+		return ""
+	}
+
+	return "### Round " + last
 }
