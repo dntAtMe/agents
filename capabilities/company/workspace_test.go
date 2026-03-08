@@ -97,7 +97,7 @@ func TestSyncTaskBoard(t *testing.T) {
 	}
 
 	tb := NewTaskBoard()
-	tb.Add("Test task", "A test", "backend-dev", "", "", 0)
+	tb.Add("Test task", "A test", "backend-dev", "", "", 0, "")
 
 	if err := SyncTaskBoard(root, tb); err != nil {
 		t.Fatalf("SyncTaskBoard failed: %v", err)

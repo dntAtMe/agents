@@ -16,12 +16,14 @@ func AddTaskTool() tool.Tool {
 		StringParam("priority", "Priority: low, medium, high. Defaults to medium.", false).
 		StringParam("depends_on", "Task ID this depends on (e.g. 'TASK-001').", false).
 		IntParam("deadline", "Round number by which this task should be completed (e.g. 5). 0 or omit for no deadline.", false).
+		StringParam("reviewer", "Agent who should review this task (e.g. 'architect', 'cto'). Optional.", false).
 		Handler(func(_ context.Context, args map[string]any, state map[string]any) (map[string]any, error) {
 			title, _ := args["title"].(string)
 			desc, _ := args["description"].(string)
 			assignee, _ := args["assignee"].(string)
 			priority, _ := args["priority"].(string)
 			dependsOn, _ := args["depends_on"].(string)
+			reviewer, _ := args["reviewer"].(string)
 
 			deadline := 0
 			if v, ok := args["deadline"]; ok {
@@ -34,7 +36,7 @@ func AddTaskTool() tool.Tool {
 			}
 
 			tb := GetTaskBoard(state)
-			id := tb.Add(title, desc, assignee, priority, dependsOn, deadline)
+			id := tb.Add(title, desc, assignee, priority, dependsOn, deadline, reviewer)
 
 			// Sync to file
 			root := GetWorkspaceRoot(state)
@@ -63,6 +65,32 @@ func UpdateTaskTool() tool.Tool {
 			tb := GetTaskBoard(state)
 			if err := tb.Update(taskID, status, notes); err != nil {
 				return map[string]any{"error": err.Error()}, nil
+			}
+
+			// Auto-notify reviewer when moving to awaiting_review
+			if status == "awaiting_review" {
+				task := tb.GetByID(taskID)
+				if task != nil && task.Reviewer != "" {
+					caller := GetCurrentAgent(state)
+					if caller == "" {
+						caller = "system"
+					}
+					el := GetEmailLog(state)
+					round := GetCurrentRound(state)
+					el.Send(
+						caller,
+						[]string{task.Reviewer},
+						nil,
+						fmt.Sprintf("Task %s is ready for your review", taskID),
+						fmt.Sprintf("Task %s is ready for your review: %s", taskID, task.Title),
+						round,
+						false,
+					)
+					root := GetWorkspaceRoot(state)
+					if root != "" {
+						_ = SyncInbox(root, el, task.Reviewer)
+					}
+				}
 			}
 
 			// Sync to file

@@ -21,6 +21,7 @@ func InitWorkspace(root string) error {
 	dirs := []string{
 		"shared",
 		"shared/meetings",
+		"shared/reviews",
 		"architect/reviews",
 		"src/backend",
 		"src/frontend",

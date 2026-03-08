@@ -351,3 +351,33 @@ func TestEmailCCRecipientCanReply(t *testing.T) {
 		t.Errorf("expected sent, got %v", result["status"])
 	}
 }
+
+func TestUrgentEmailRateLimit(t *testing.T) {
+	el := NewEmailLog()
+
+	// First urgent from ceo to cto in round 1 should be allowed
+	if !el.CanSendUrgent("ceo", "cto", 1) {
+		t.Error("first urgent should be allowed")
+	}
+	el.RecordUrgent("ceo", "cto", 1)
+
+	// Second urgent from ceo to cto in round 1 should be blocked
+	if el.CanSendUrgent("ceo", "cto", 1) {
+		t.Error("second urgent to same recipient in same round should be blocked")
+	}
+
+	// Urgent from ceo to architect in round 1 should still be allowed (different recipient)
+	if !el.CanSendUrgent("ceo", "architect", 1) {
+		t.Error("urgent to different recipient should be allowed")
+	}
+
+	// Urgent from ceo to cto in round 2 should be allowed (different round)
+	if !el.CanSendUrgent("ceo", "cto", 2) {
+		t.Error("urgent in new round should be allowed")
+	}
+
+	// Urgent from architect to cto in round 1 should be allowed (different sender)
+	if !el.CanSendUrgent("architect", "cto", 1) {
+		t.Error("urgent from different sender should be allowed")
+	}
+}

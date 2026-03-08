@@ -78,11 +78,17 @@ func SendEmailTool() tool.Tool {
 				}
 			}
 
-			// Urgent: immediately activate To recipients
+			// Urgent: immediately activate To recipients (max one urgent per recipient per round)
 			if urgent {
 				runAgentFn, ok := state["sim_run_agent"].(func(ctx context.Context, targetName, message string, state map[string]any) (string, error))
 				if ok {
+					var skipped []string
 					for _, target := range recipients {
+						if !el.CanSendUrgent(caller, target, round) {
+							skipped = append(skipped, target)
+							continue
+						}
+						el.RecordUrgent(caller, target, round)
 						urgentPrompt := fmt.Sprintf(
 							"[URGENT email from %s: %s] Check your inbox immediately with check_inbox and respond to the urgent email.",
 							caller, subject,
@@ -90,6 +96,13 @@ func SendEmailTool() tool.Tool {
 						state[KeyCurrentAgent] = target
 						_, _ = runAgentFn(ctx, target, urgentPrompt, state)
 						state[KeyCurrentAgent] = caller
+					}
+					if len(skipped) > 0 {
+						return map[string]any{
+							"email_id": emailID,
+							"status":   "sent",
+							"warning":  fmt.Sprintf("Urgent activation skipped for %s — already sent urgent this round.", strings.Join(skipped, ", ")),
+						}, nil
 					}
 				}
 			}
@@ -186,11 +199,17 @@ func ReplyEmailTool() tool.Tool {
 				}
 			}
 
-			// Urgent: immediately activate To recipients
+			// Urgent: immediately activate To recipients (max one urgent per recipient per round)
 			if urgent {
 				runAgentFn, ok := state["sim_run_agent"].(func(ctx context.Context, targetName, message string, state map[string]any) (string, error))
 				if ok {
+					var skipped []string
 					for _, target := range reply.To {
+						if !el.CanSendUrgent(caller, target, round) {
+							skipped = append(skipped, target)
+							continue
+						}
+						el.RecordUrgent(caller, target, round)
 						urgentPrompt := fmt.Sprintf(
 							"[URGENT email from %s: %s] Check your inbox immediately with check_inbox and respond to the urgent email.",
 							caller, reply.Subject,
@@ -198,6 +217,14 @@ func ReplyEmailTool() tool.Tool {
 						state[KeyCurrentAgent] = target
 						_, _ = runAgentFn(ctx, target, urgentPrompt, state)
 						state[KeyCurrentAgent] = caller
+					}
+					if len(skipped) > 0 {
+						return map[string]any{
+							"email_id":  reply.ID,
+							"thread_id": reply.ThreadID,
+							"status":    "sent",
+							"warning":   fmt.Sprintf("Urgent activation skipped for %s — already sent urgent this round.", strings.Join(skipped, ", ")),
+						}, nil
 					}
 				}
 			}

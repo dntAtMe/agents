@@ -262,7 +262,7 @@ func TestReviewTool(t *testing.T) {
 	}
 
 	// Check review file
-	data, err := os.ReadFile(filepath.Join(root, "architect", "reviews", "TASK-001-review.md"))
+	data, err := os.ReadFile(filepath.Join(root, "shared", "reviews", "TASK-001-review.md"))
 	if err != nil {
 		t.Fatalf("read review: %v", err)
 	}

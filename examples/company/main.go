@@ -281,7 +281,8 @@ func main() {
 			Add(prompt.Identity(
 				"You are the CTO. You make technology choices, define the technical architecture, "+
 					"and coordinate technical execution. Write architecture to shared/architecture.md. "+
-					"Use log_decision for important technical decisions.")).
+					"Use log_decision for important technical decisions. "+
+					"When assigned as a reviewer on a task, use write_review to review it.")).
 			Add(personalityMixin("cto")).
 			Add(prompt.HandoffPolicy(
 				"Delegate detailed design and code review to the architect.")).
@@ -304,6 +305,7 @@ func main() {
 			company.LogDecisionTool(),
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
+			company.WriteReviewTool(),
 
 			sendEmail,
 			checkInbox,
@@ -380,7 +382,7 @@ func main() {
 					"Post a sprint status update every round summarizing: what's done, what's in progress, what's overdue, and what's blocked.")).
 			Add(personalityMixin("project-manager")).
 			Add(prompt.ToolUsage(
-				"Use add_task to create tasks — ALWAYS set a deadline. "+
+				"Use add_task to create tasks — ALWAYS set a deadline. Use the reviewer param to assign a reviewer (e.g. 'architect', 'cto'). "+
 					"Use update_task to change statuses. "+
 					"Use read_task_board to review current state and check for overdue tasks. "+
 					"Use post_update to announce sprint status. "+
@@ -422,7 +424,8 @@ func main() {
 					"For complex tasks, write a brief plan to backend-dev/plans/TASK-{id}-plan.md first, then implement immediately in the same turn. "+
 					"3) Post update when code is written. "+
 					"4) Update task status to 'done' once code is complete. "+
-					"Prioritize shipping working code over perfect plans. If a task has a deadline, meet it.")).
+					"Prioritize shipping working code over perfect plans. If a task has a deadline, meet it. "+
+					"You can be assigned as a peer reviewer — use write_review when assigned.")).
 			Add(personalityMixin("backend-dev")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
@@ -430,6 +433,7 @@ func main() {
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
+					"Use write_review to review tasks when you are the assigned reviewer. "+
 										emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -443,6 +447,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			company.WriteReviewTool(),
 
 			sendEmail,
 			checkInbox,
@@ -463,7 +468,8 @@ func main() {
 					"For complex tasks, write a brief plan to frontend-dev/plans/TASK-{id}-plan.md first, then implement immediately in the same turn. "+
 					"3) Post update when code is written. "+
 					"4) Update task status to 'done' once code is complete. "+
-					"Prioritize shipping working code over perfect plans. If a task has a deadline, meet it.")).
+					"Prioritize shipping working code over perfect plans. If a task has a deadline, meet it. "+
+					"You can be assigned as a peer reviewer — use write_review when assigned.")).
 			Add(personalityMixin("frontend-dev")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
@@ -471,6 +477,7 @@ func main() {
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
+					"Use write_review to review tasks when you are the assigned reviewer. "+
 										emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -484,6 +491,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			company.WriteReviewTool(),
 
 			sendEmail,
 			checkInbox,
@@ -504,7 +512,8 @@ func main() {
 					"For complex tasks, write a brief plan to devops/plans/TASK-{id}-plan.md first, then implement immediately in the same turn. "+
 					"3) Post update when infrastructure is written. "+
 					"4) Update task status to 'done' once complete. "+
-					"Prioritize shipping working configs over perfect plans. If a task has a deadline, meet it.")).
+					"Prioritize shipping working configs over perfect plans. If a task has a deadline, meet it. "+
+					"You can be assigned as a peer reviewer — use write_review when assigned.")).
 			Add(personalityMixin("devops")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
@@ -512,6 +521,7 @@ func main() {
 					"Use read_file to check architect reviews. "+
 					"Use update_task to change task status. "+
 					"Use post_update to request reviews. "+
+					"Use write_review to review tasks when you are the assigned reviewer. "+
 										emailOnlyInstruction+"\n"+relationshipInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction))).
@@ -525,6 +535,7 @@ func main() {
 			company.PostUpdateTool(),
 			company.ReadUpdatesTool(),
 			company.WriteDiaryTool(),
+			company.WriteReviewTool(),
 
 			sendEmail,
 			checkInbox,
@@ -650,7 +661,7 @@ func main() {
 		fmt.Println("  */diary.md             — Agent Diaries")
 		fmt.Println("  */inbox.md             — Agent Email Inboxes")
 		fmt.Println("  */personality.md       — Agent Personalities")
-		fmt.Println("  architect/reviews/     — Code Reviews")
+		fmt.Println("  shared/reviews/        — Code Reviews")
 		fmt.Println("  src/                   — Generated Code")
 		fmt.Println("  trace.jsonl            — Event Trace")
 	}

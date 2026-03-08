@@ -8,8 +8,8 @@ import (
 func TestTaskBoard_AddAndRender(t *testing.T) {
 	tb := NewTaskBoard()
 
-	id1 := tb.Add("Implement API", "Build REST endpoints", "backend-dev", "high", "", 0)
-	id2 := tb.Add("Design UI", "Create mockups", "frontend-dev", "", "", 0)
+	id1 := tb.Add("Implement API", "Build REST endpoints", "backend-dev", "high", "", 0, "")
+	id2 := tb.Add("Design UI", "Create mockups", "frontend-dev", "", "", 0, "")
 
 	if id1 != "TASK-001" {
 		t.Errorf("expected TASK-001, got %s", id1)
@@ -29,7 +29,7 @@ func TestTaskBoard_AddAndRender(t *testing.T) {
 
 func TestTaskBoard_Update(t *testing.T) {
 	tb := NewTaskBoard()
-	id := tb.Add("Test task", "desc", "backend-dev", "", "", 0)
+	id := tb.Add("Test task", "desc", "backend-dev", "", "", 0, "")
 
 	if err := tb.Update(id, "in_progress", "started work"); err != nil {
 		t.Fatalf("update failed: %v", err)

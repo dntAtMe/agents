@@ -19,6 +19,7 @@ type Task struct {
 	DependsOn   string `json:"depends_on,omitempty"`
 	Notes       string `json:"notes,omitempty"`
 	Deadline    int    `json:"deadline,omitempty"` // round by which this task should be done (0 = no deadline)
+	Reviewer    string `json:"reviewer,omitempty"`
 }
 
 // TaskBoard holds all tasks with thread-safe access.
@@ -34,7 +35,7 @@ func NewTaskBoard() *TaskBoard {
 }
 
 // Add creates a new task and returns its ID.
-func (tb *TaskBoard) Add(title, description, assignee, priority, dependsOn string, deadline int) string {
+func (tb *TaskBoard) Add(title, description, assignee, priority, dependsOn string, deadline int, reviewer string) string {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	tb.counter++
@@ -51,8 +52,21 @@ func (tb *TaskBoard) Add(title, description, assignee, priority, dependsOn strin
 		Priority:    priority,
 		DependsOn:   dependsOn,
 		Deadline:    deadline,
+		Reviewer:    reviewer,
 	})
 	return id
+}
+
+// GetByID returns a pointer to the task with the given ID, or nil if not found.
+func (tb *TaskBoard) GetByID(id string) *Task {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	for i := range tb.Tasks {
+		if tb.Tasks[i].ID == id {
+			return &tb.Tasks[i]
+		}
+	}
+	return nil
 }
 
 // Update modifies an existing task's status and optional notes.
@@ -92,6 +106,9 @@ func (tb *TaskBoard) Render() string {
 		sb.WriteString(fmt.Sprintf("## %s\n\n", strings.ToUpper(s)))
 		for _, t := range tasks {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s (assignee: %s, priority: %s)\n", t.ID, t.Title, t.Assignee, t.Priority))
+			if t.Reviewer != "" {
+				sb.WriteString(fmt.Sprintf("  Reviewer: %s\n", t.Reviewer))
+			}
 			if t.Deadline > 0 {
 				sb.WriteString(fmt.Sprintf("  Deadline: round %d\n", t.Deadline))
 			}
@@ -244,13 +261,36 @@ type EmailLog struct {
 	Emails  []Email `json:"emails"`
 	counter int
 	ReadBy  map[string]map[string]bool `json:"-"` // agentName → emailID → read
+	// UrgentSent tracks urgent emails: "sender:recipient:round" → true.
+	// Used to enforce one urgent email per sender→recipient per round.
+	UrgentSent map[string]bool `json:"-"`
 }
 
 // NewEmailLog creates an empty email log.
 func NewEmailLog() *EmailLog {
 	return &EmailLog{
-		ReadBy: make(map[string]map[string]bool),
+		ReadBy:     make(map[string]map[string]bool),
+		UrgentSent: make(map[string]bool),
 	}
+}
+
+// CanSendUrgent checks whether sender can send an urgent email to recipient in the given round.
+func (el *EmailLog) CanSendUrgent(sender, recipient string, round int) bool {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	key := fmt.Sprintf("%s:%s:%d", sender, recipient, round)
+	return !el.UrgentSent[key]
+}
+
+// RecordUrgent marks that sender sent an urgent email to recipient in the given round.
+func (el *EmailLog) RecordUrgent(sender, recipient string, round int) {
+	el.mu.Lock()
+	defer el.mu.Unlock()
+	if el.UrgentSent == nil {
+		el.UrgentSent = make(map[string]bool)
+	}
+	key := fmt.Sprintf("%s:%s:%d", sender, recipient, round)
+	el.UrgentSent[key] = true
 }
 
 // Send creates a new email and returns its ID.

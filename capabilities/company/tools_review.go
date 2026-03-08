@@ -22,11 +22,22 @@ func WriteReviewTool() tool.Tool {
 
 			root := GetWorkspaceRoot(state)
 			round := GetCurrentRound(state)
+			caller := GetCurrentAgent(state)
 
-			// Write review file
-			reviewPath := filepath.Join(root, "architect", "reviews", fmt.Sprintf("%s-review.md", taskID))
-			reviewContent := fmt.Sprintf("# Review: %s\n\n**Round:** %d\n**Verdict:** %s\n\n## Feedback\n\n%s\n",
-				taskID, round, verdict, feedback)
+			// Check reviewer assignment
+			tb := GetTaskBoard(state)
+			task := tb.GetByID(taskID)
+			if task == nil {
+				return map[string]any{"error": fmt.Sprintf("task %q not found", taskID)}, nil
+			}
+			if task.Reviewer != "" && caller != "" && caller != task.Reviewer {
+				return map[string]any{"error": fmt.Sprintf("only the assigned reviewer (%s) can review this task", task.Reviewer)}, nil
+			}
+
+			// Write review file to shared/reviews/
+			reviewPath := filepath.Join(root, "shared", "reviews", fmt.Sprintf("%s-review.md", taskID))
+			reviewContent := fmt.Sprintf("# Review: %s\n\n**Reviewer:** %s\n**Round:** %d\n**Verdict:** %s\n\n## Feedback\n\n%s\n",
+				taskID, caller, round, verdict, feedback)
 
 			if err := os.MkdirAll(filepath.Dir(reviewPath), 0o755); err != nil {
 				return map[string]any{"error": fmt.Sprintf("create review dir: %v", err)}, nil
@@ -37,9 +48,8 @@ func WriteReviewTool() tool.Tool {
 			}
 
 			// Update task status
-			tb := GetTaskBoard(state)
 			newStatus := verdict // "approved" or "needs_changes"
-			if err := tb.Update(taskID, newStatus, fmt.Sprintf("Review: %s", verdict)); err != nil {
+			if err := tb.Update(taskID, newStatus, fmt.Sprintf("Review by %s: %s", caller, verdict)); err != nil {
 				return map[string]any{"error": err.Error()}, nil
 			}
 
@@ -52,7 +62,7 @@ func WriteReviewTool() tool.Tool {
 				"status":      "review written",
 				"task_id":     taskID,
 				"verdict":     verdict,
-				"review_path": fmt.Sprintf("architect/reviews/%s-review.md", taskID),
+				"review_path": fmt.Sprintf("shared/reviews/%s-review.md", taskID),
 			}, nil
 		}).
 		Build()
