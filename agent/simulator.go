@@ -124,12 +124,31 @@ func Simulate(
 		if ag == nil {
 			return "", fmt.Errorf("agent %q not found", targetName)
 		}
+
+		round := 0
+		if r, ok := callerState["current_round"].(int); ok {
+			round = r
+		}
+
+		if config.OnAgentActivation != nil {
+			config.OnAgentActivation(round, targetName)
+		}
+
 		conv := conversation.New()
 		conv.AppendUserText(message)
 		result, err := Run(ctx, predictor, ag, conv, callerState)
 		if err != nil {
+			if config.OnAgentCompletion != nil {
+				config.OnAgentCompletion(round, targetName, nil, false)
+			}
 			return "", err
 		}
+
+		if config.OnAgentCompletion != nil {
+			idle := isIdle(result.FinalText)
+			config.OnAgentCompletion(round, targetName, result, idle)
+		}
+
 		return result.FinalText, nil
 	}
 

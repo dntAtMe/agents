@@ -267,6 +267,11 @@ func (m *Model) handleEvent(ev Event) {
 		if t, ok := ev.Data["tokens"].(int32); ok {
 			tokens = t
 		}
+		if tokens > 0 {
+			info := m.agentStatus[ev.Agent]
+			info.Tokens = tokens
+			m.agentStatus[ev.Agent] = info
+		}
 		if text != "" {
 			m.appendDetail(ev.Agent, detailEntry{
 				Time:      ts,
@@ -524,6 +529,13 @@ func (m *Model) renderAgents() string {
 		}
 
 		label := fmt.Sprintf("%s %-16s %s", icon, name, info.Status)
+		if info.Tokens > 0 {
+			if info.Tokens >= 1000 {
+				label += fmt.Sprintf("  %.1fk tok", float64(info.Tokens)/1000)
+			} else {
+				label += fmt.Sprintf("  %d tok", info.Tokens)
+			}
+		}
 		if info.ToolCount > 0 {
 			label += fmt.Sprintf("  [%d tools]", info.ToolCount)
 		}
