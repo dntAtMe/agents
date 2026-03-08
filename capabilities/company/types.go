@@ -18,6 +18,7 @@ type Task struct {
 	Priority    string `json:"priority"`
 	DependsOn   string `json:"depends_on,omitempty"`
 	Notes       string `json:"notes,omitempty"`
+	Deadline    int    `json:"deadline,omitempty"` // round by which this task should be done (0 = no deadline)
 }
 
 // TaskBoard holds all tasks with thread-safe access.
@@ -33,7 +34,7 @@ func NewTaskBoard() *TaskBoard {
 }
 
 // Add creates a new task and returns its ID.
-func (tb *TaskBoard) Add(title, description, assignee, priority, dependsOn string) string {
+func (tb *TaskBoard) Add(title, description, assignee, priority, dependsOn string, deadline int) string {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
 	tb.counter++
@@ -49,6 +50,7 @@ func (tb *TaskBoard) Add(title, description, assignee, priority, dependsOn strin
 		Status:      "todo",
 		Priority:    priority,
 		DependsOn:   dependsOn,
+		Deadline:    deadline,
 	})
 	return id
 }
@@ -90,6 +92,9 @@ func (tb *TaskBoard) Render() string {
 		sb.WriteString(fmt.Sprintf("## %s\n\n", strings.ToUpper(s)))
 		for _, t := range tasks {
 			sb.WriteString(fmt.Sprintf("- **%s**: %s (assignee: %s, priority: %s)\n", t.ID, t.Title, t.Assignee, t.Priority))
+			if t.Deadline > 0 {
+				sb.WriteString(fmt.Sprintf("  Deadline: round %d\n", t.Deadline))
+			}
 			if t.Notes != "" {
 				sb.WriteString(fmt.Sprintf("  Notes: %s\n", t.Notes))
 			}

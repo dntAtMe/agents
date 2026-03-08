@@ -15,6 +15,7 @@ func AddTaskTool() tool.Tool {
 		StringParam("assignee", "Agent to assign (e.g. 'backend-dev', 'frontend-dev', 'devops').", true).
 		StringParam("priority", "Priority: low, medium, high. Defaults to medium.", false).
 		StringParam("depends_on", "Task ID this depends on (e.g. 'TASK-001').", false).
+		IntParam("deadline", "Round number by which this task should be completed (e.g. 5). 0 or omit for no deadline.", false).
 		Handler(func(_ context.Context, args map[string]any, state map[string]any) (map[string]any, error) {
 			title, _ := args["title"].(string)
 			desc, _ := args["description"].(string)
@@ -22,8 +23,18 @@ func AddTaskTool() tool.Tool {
 			priority, _ := args["priority"].(string)
 			dependsOn, _ := args["depends_on"].(string)
 
+			deadline := 0
+			if v, ok := args["deadline"]; ok {
+				switch n := v.(type) {
+				case int:
+					deadline = n
+				case float64:
+					deadline = int(n)
+				}
+			}
+
 			tb := GetTaskBoard(state)
-			id := tb.Add(title, desc, assignee, priority, dependsOn)
+			id := tb.Add(title, desc, assignee, priority, dependsOn, deadline)
 
 			// Sync to file
 			root := GetWorkspaceRoot(state)
