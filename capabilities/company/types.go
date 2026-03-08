@@ -224,11 +224,13 @@ type Email struct {
 	ThreadID  string    `json:"thread_id"`
 	From      string    `json:"from"`
 	To        []string  `json:"to"`
+	CC        []string  `json:"cc,omitempty"`
 	Subject   string    `json:"subject"`
 	Body      string    `json:"body"`
 	Round     int       `json:"round"`
 	Time      time.Time `json:"time"`
 	InReplyTo string    `json:"in_reply_to,omitempty"`
+	Urgent    bool      `json:"urgent,omitempty"`
 }
 
 // EmailLog holds all emails with thread-safe access.
@@ -247,7 +249,7 @@ func NewEmailLog() *EmailLog {
 }
 
 // Send creates a new email and returns its ID.
-func (el *EmailLog) Send(from string, to []string, subject, body string, round int) string {
+func (el *EmailLog) Send(from string, to, cc []string, subject, body string, round int, urgent bool) string {
 	el.mu.Lock()
 	defer el.mu.Unlock()
 	el.counter++
@@ -257,10 +259,12 @@ func (el *EmailLog) Send(from string, to []string, subject, body string, round i
 		ThreadID: id,
 		From:     from,
 		To:       to,
+		CC:       cc,
 		Subject:  subject,
 		Body:     body,
 		Round:    round,
 		Time:     time.Now(),
+		Urgent:   urgent,
 	}
 	el.Emails = append(el.Emails, email)
 	return id
@@ -268,7 +272,7 @@ func (el *EmailLog) Send(from string, to []string, subject, body string, round i
 
 // Reply creates a reply to an existing email. Returns the new email and an error
 // if the parent doesn't exist or the caller wasn't a participant.
-func (el *EmailLog) Reply(from, parentID, body string, round int) (Email, error) {
+func (el *EmailLog) Reply(from, parentID, body string, round int, cc []string, urgent bool) (Email, error) {
 	el.mu.Lock()
 	defer el.mu.Unlock()
 
@@ -284,7 +288,7 @@ func (el *EmailLog) Reply(from, parentID, body string, round int) (Email, error)
 		return Email{}, fmt.Errorf("email %q not found", parentID)
 	}
 
-	// Check caller was a participant (sender or recipient)
+	// Check caller was a participant (sender, recipient, or CC)
 	isParticipant := parent.From == from
 	if !isParticipant {
 		for _, r := range parent.To {
@@ -295,10 +299,18 @@ func (el *EmailLog) Reply(from, parentID, body string, round int) (Email, error)
 		}
 	}
 	if !isParticipant {
+		for _, r := range parent.CC {
+			if r == from {
+				isParticipant = true
+				break
+			}
+		}
+	}
+	if !isParticipant {
 		return Email{}, fmt.Errorf("you are not a participant in email %q", parentID)
 	}
 
-	// Build recipients: all original participants minus self
+	// Build recipients: all original participants minus self (reply-all)
 	recipientSet := make(map[string]bool)
 	recipientSet[parent.From] = true
 	for _, r := range parent.To {
@@ -308,6 +320,23 @@ func (el *EmailLog) Reply(from, parentID, body string, round int) (Email, error)
 	var to []string
 	for r := range recipientSet {
 		to = append(to, r)
+	}
+
+	// Merge CC: parent CC + new CC, minus self and To recipients
+	ccSet := make(map[string]bool)
+	for _, r := range parent.CC {
+		ccSet[r] = true
+	}
+	for _, r := range cc {
+		ccSet[r] = true
+	}
+	delete(ccSet, from)
+	for _, r := range to {
+		delete(ccSet, r)
+	}
+	var mergedCC []string
+	for r := range ccSet {
+		mergedCC = append(mergedCC, r)
 	}
 
 	// Build subject
@@ -323,11 +352,13 @@ func (el *EmailLog) Reply(from, parentID, body string, round int) (Email, error)
 		ThreadID:  parent.ThreadID,
 		From:      from,
 		To:        to,
+		CC:        mergedCC,
 		Subject:   subject,
 		Body:      body,
 		Round:     round,
 		Time:      time.Now(),
 		InReplyTo: parentID,
+		Urgent:    urgent,
 	}
 	el.Emails = append(el.Emails, email)
 	return email, nil
@@ -340,12 +371,20 @@ func (el *EmailLog) Inbox(agentName string, unreadOnly bool, fromFilter string) 
 
 	var result []Email
 	for _, e := range el.Emails {
-		// Check if agent is a recipient
+		// Check if agent is a recipient (To or CC)
 		isRecipient := false
 		for _, r := range e.To {
 			if r == agentName {
 				isRecipient = true
 				break
+			}
+		}
+		if !isRecipient {
+			for _, r := range e.CC {
+				if r == agentName {
+					isRecipient = true
+					break
+				}
 			}
 		}
 		if !isRecipient {
@@ -393,9 +432,16 @@ func (el *EmailLog) RenderInbox(emails []Email) string {
 		return sb.String()
 	}
 	for _, e := range emails {
-		sb.WriteString(fmt.Sprintf("## %s: %s\n\n", e.ID, e.Subject))
+		subjectLine := e.Subject
+		if e.Urgent {
+			subjectLine = "[URGENT] " + subjectLine
+		}
+		sb.WriteString(fmt.Sprintf("## %s: %s\n\n", e.ID, subjectLine))
 		sb.WriteString(fmt.Sprintf("**From:** %s\n", e.From))
 		sb.WriteString(fmt.Sprintf("**To:** %s\n", strings.Join(e.To, ", ")))
+		if len(e.CC) > 0 {
+			sb.WriteString(fmt.Sprintf("**CC:** %s\n", strings.Join(e.CC, ", ")))
+		}
 		if e.InReplyTo != "" {
 			sb.WriteString(fmt.Sprintf("**In reply to:** %s\n", e.InReplyTo))
 		}

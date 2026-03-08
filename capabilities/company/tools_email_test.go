@@ -50,9 +50,9 @@ func TestEmailCheckInboxFilters(t *testing.T) {
 
 	// Send multiple emails
 	el := GetEmailLog(state)
-	el.Send("ceo", []string{"cto"}, "First email", "body1", 1)
-	el.Send("architect", []string{"cto"}, "Second email", "body2", 1)
-	el.Send("ceo", []string{"backend-dev"}, "Not for cto", "body3", 1)
+	el.Send("ceo", []string{"cto"}, nil, "First email", "body1", 1, false)
+	el.Send("architect", []string{"cto"}, nil, "Second email", "body2", 1, false)
+	el.Send("ceo", []string{"backend-dev"}, nil, "Not for cto", "body3", 1, false)
 
 	state[KeyCurrentAgent] = "cto"
 
@@ -68,8 +68,8 @@ func TestEmailCheckInboxFilters(t *testing.T) {
 	}
 
 	// Check with from filter — need to re-send since all were marked read
-	el.Send("ceo", []string{"cto"}, "Third from ceo", "body4", 2)
-	el.Send("architect", []string{"cto"}, "Third from architect", "body5", 2)
+	el.Send("ceo", []string{"cto"}, nil, "Third from ceo", "body4", 2, false)
+	el.Send("architect", []string{"cto"}, nil, "Third from architect", "body5", 2, false)
 
 	result, err = ci.Execute(ctx, map[string]any{
 		"from":        "ceo",
@@ -88,7 +88,7 @@ func TestEmailCheckInboxMarksRead(t *testing.T) {
 	ctx := context.Background()
 
 	el := GetEmailLog(state)
-	el.Send("ceo", []string{"cto"}, "Test email", "body", 1)
+	el.Send("ceo", []string{"cto"}, nil, "Test email", "body", 1, false)
 
 	state[KeyCurrentAgent] = "cto"
 
@@ -164,7 +164,7 @@ func TestEmailReplyNotParticipant(t *testing.T) {
 
 	// CEO sends to CTO
 	el := GetEmailLog(state)
-	el.Send("ceo", []string{"cto"}, "Private", "secret stuff", 1)
+	el.Send("ceo", []string{"cto"}, nil, "Private", "secret stuff", 1, false)
 
 	// Architect tries to reply
 	state[KeyCurrentAgent] = "architect"
@@ -249,5 +249,105 @@ func TestEmailThreadIntegrity(t *testing.T) {
 	// The third email should have thread_id = EMAIL-001
 	if result["thread_id"] != "EMAIL-001" {
 		t.Errorf("expected thread_id EMAIL-001, got %v", result["thread_id"])
+	}
+}
+
+func TestEmailSendWithCC(t *testing.T) {
+	_, state := setupTestWorkspace(t)
+	ctx := context.Background()
+
+	state[KeyCurrentAgent] = "ceo"
+
+	st := SendEmailTool()
+	result, err := st.Execute(ctx, map[string]any{
+		"to":      "cto",
+		"subject": "Architecture review",
+		"body":    "Please review.",
+		"cc":      "architect, project-manager",
+	}, state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result["status"] != "sent" {
+		t.Errorf("expected sent, got %v", result["status"])
+	}
+
+	el := GetEmailLog(state)
+
+	// CC recipient should see the email in their inbox
+	state[KeyCurrentAgent] = "architect"
+	ci := CheckInboxTool()
+	inboxResult, err := ci.Execute(ctx, map[string]any{}, state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inboxResult["count"] != "1" {
+		t.Errorf("CC recipient architect should see 1 email, got %v", inboxResult["count"])
+	}
+
+	// project-manager should also see it
+	state[KeyCurrentAgent] = "project-manager"
+	inboxResult, err = ci.Execute(ctx, map[string]any{}, state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inboxResult["count"] != "1" {
+		t.Errorf("CC recipient project-manager should see 1 email, got %v", inboxResult["count"])
+	}
+
+	// Verify CC field stored on email
+	el.mu.Lock()
+	email := el.Emails[0]
+	el.mu.Unlock()
+	if len(email.CC) != 2 {
+		t.Errorf("expected 2 CC recipients, got %d", len(email.CC))
+	}
+}
+
+func TestEmailUrgentFlag(t *testing.T) {
+	_, state := setupTestWorkspace(t)
+
+	el := GetEmailLog(state)
+	el.Send("ceo", []string{"cto"}, nil, "Urgent matter", "Fix now!", 1, true)
+
+	el.mu.Lock()
+	email := el.Emails[0]
+	el.mu.Unlock()
+
+	if !email.Urgent {
+		t.Error("expected email to be marked urgent")
+	}
+
+	// Check rendered inbox shows [URGENT]
+	emails := el.Inbox("cto", false, "")
+	rendered := el.RenderInbox(emails)
+	if !strings.Contains(rendered, "[URGENT]") {
+		t.Error("expected rendered inbox to contain [URGENT] prefix")
+	}
+}
+
+func TestEmailCCRecipientCanReply(t *testing.T) {
+	_, state := setupTestWorkspace(t)
+	ctx := context.Background()
+
+	el := GetEmailLog(state)
+	// Send email with architect on CC
+	el.Send("ceo", []string{"cto"}, []string{"architect"}, "Discussion", "Let's discuss.", 1, false)
+
+	// Architect (CC'd) should be able to reply
+	state[KeyCurrentAgent] = "architect"
+	rt := ReplyEmailTool()
+	result, err := rt.Execute(ctx, map[string]any{
+		"email_id": "EMAIL-001",
+		"body":     "I have thoughts on this.",
+	}, state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result["error"]; ok {
+		t.Errorf("CC recipient should be able to reply, got error: %v", result["error"])
+	}
+	if result["status"] != "sent" {
+		t.Errorf("expected sent, got %v", result["status"])
 	}
 }

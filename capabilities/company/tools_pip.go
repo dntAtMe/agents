@@ -64,7 +64,7 @@ func RecordPiPTool() tool.Tool {
 				"**Expectations:** %s\n"+
 				"**Review round:** %d\n",
 				pipID, agentName, caller, reason, expectations, reviewRound)
-			el.Send(caller, []string{agentName}, subject, body, round)
+			el.Send(caller, []string{agentName}, nil, subject, body, round, false)
 
 			if root != "" {
 				_ = SyncPiPs(root, pl)

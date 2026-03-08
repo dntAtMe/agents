@@ -17,7 +17,7 @@ const (
 	maxPatience           = 100
 )
 
-// SimRuntime holds the runtime dependencies needed by tools (like ask_agent)
+// SimRuntime holds the runtime dependencies needed by tools (like urgent emails)
 // that need to invoke agents during a simulation. Stored in state as "sim_runtime".
 type SimRuntime struct {
 	Client    *llm.Client
@@ -111,7 +111,7 @@ func Simulate(
 	predictor := NewLLMPredictor(client)
 	var allRuns []AgentRunRecord
 
-	// Store SimRuntime in state so tools like ask_agent can invoke agents
+	// Store SimRuntime in state so tools like urgent emails can invoke agents
 	state["sim_runtime"] = &SimRuntime{
 		Client:    client,
 		Registry:  registry,
@@ -194,11 +194,6 @@ func Simulate(
 
 		if config.OnRoundStart != nil {
 			config.OnRoundStart(round)
-		}
-
-		// Reset DM counts for this round
-		for _, name := range agentOrder {
-			state[fmt.Sprintf("dm_count_%s_%d", name, round)] = 0
 		}
 
 		allIdle := true

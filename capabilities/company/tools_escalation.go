@@ -61,7 +61,7 @@ func FileEscalationTool() tool.Tool {
 				"**Evidence:** %s\n\n"+
 				"Please review using view_escalations and respond_to_escalation.",
 				escID, caller, aboutAgent, reason, evidence)
-			el.Send(caller, []string{manager}, subject, body, round)
+			el.Send(caller, []string{manager}, nil, subject, body, round, false)
 
 			// Sync files
 			if root != "" {
@@ -191,7 +191,7 @@ func RespondToEscalationTool() tool.Tool {
 				"**Status:** %s\n"+
 				"**Resolution:** %s\n",
 				escalationID, esc.AboutAgent, status, resolution)
-			el.Send(caller, []string{esc.FromAgent}, subject, body, round)
+			el.Send(caller, []string{esc.FromAgent}, nil, subject, body, round, false)
 
 			// Sync files
 			if root != "" {

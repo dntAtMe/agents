@@ -6,8 +6,8 @@ import (
 
 func TestPersonalitiesReturnsAll(t *testing.T) {
 	ps := Personalities()
-	if len(ps) != 5 {
-		t.Fatalf("expected 5 personalities, got %d", len(ps))
+	if len(ps) != 12 {
+		t.Fatalf("expected 12 personalities, got %d", len(ps))
 	}
 
 	names := make(map[string]bool)
@@ -27,6 +27,13 @@ func TestPersonalitiesReturnsAll(t *testing.T) {
 		"Overenthusiastic Intern",
 		"Grumpy Senior Engineer",
 		"Corporate Buzzword Manager",
+		"Impatient Deadline Hawk",
+		"By-the-Book Compliance Officer",
+		"Strategic Bare-Minimumer",
+		"Gaslighting Progress Spinner",
+		"Machiavellian Credit Hoarder",
+		"Chaos Gremlin Prototyper",
+		"Perfectionist Scope Creep Artist",
 	}
 	for _, name := range expected {
 		if !names[name] {
@@ -69,11 +76,14 @@ func TestAssignPersonalities(t *testing.T) {
 }
 
 func TestAssignPersonalitiesMoreAgentsThanPersonalities(t *testing.T) {
-	agents := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
+	agents := []string{
+		"a", "b", "c", "d", "e", "f", "g", "h",
+		"i", "j", "k", "l", "m", "n", "o", "p",
+	}
 	assignments := AssignPersonalities(agents)
 
-	if len(assignments) != 8 {
-		t.Fatalf("expected 8 assignments, got %d", len(assignments))
+	if len(assignments) != len(agents) {
+		t.Fatalf("expected %d assignments, got %d", len(agents), len(assignments))
 	}
 
 	// All agents should have a valid personality

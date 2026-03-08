@@ -54,10 +54,10 @@ func RequestFireTool() tool.Tool {
 				firedAgents[agentName] = true
 
 				// Notify the fired agent
-				el.Send("ceo", []string{agentName},
+				el.Send("ceo", []string{agentName}, nil,
 					fmt.Sprintf("Termination Notice — %s", fireID),
 					fmt.Sprintf("You have been terminated by the CEO.\n\n**Reason:** %s\n\nThis decision is final.", reason),
-					round)
+					round, false)
 
 				if root != "" {
 					_ = SyncFirings(root, fl)
@@ -72,7 +72,7 @@ func RequestFireTool() tool.Tool {
 			}
 
 			// Non-CEO: send request to CEO
-			el.Send(caller, []string{"ceo"},
+			el.Send(caller, []string{"ceo"}, nil,
 				fmt.Sprintf("Firing Request %s: %s wants to fire %s", fireID, caller, agentName),
 				fmt.Sprintf("A firing request has been submitted.\n\n"+
 					"**Request ID:** %s\n"+
@@ -81,7 +81,7 @@ func RequestFireTool() tool.Tool {
 					"**Reason:** %s\n\n"+
 					"Please review using view_fire_requests and approve_fire.",
 					fireID, agentName, caller, reason),
-				round)
+				round, false)
 
 			if root != "" {
 				_ = SyncFirings(root, fl)
@@ -186,16 +186,16 @@ func ApproveFireTool() tool.Tool {
 				firedAgents[targetAgent] = true
 
 				// Notify requester
-				el.Send("ceo", []string{requestedBy},
+				el.Send("ceo", []string{requestedBy}, nil,
 					fmt.Sprintf("Firing Request %s Approved", fireID),
 					fmt.Sprintf("Your request to fire %s has been approved.\n\n**Comments:** %s", targetAgent, comments),
-					round)
+					round, false)
 
 				// Notify fired agent
-				el.Send("ceo", []string{targetAgent},
+				el.Send("ceo", []string{targetAgent}, nil,
 					fmt.Sprintf("Termination Notice — %s", fireID),
 					fmt.Sprintf("You have been terminated.\n\n**Reason:** Per firing request %s.\n**CEO Comments:** %s\n\nThis decision is final.", fireID, comments),
-					round)
+					round, false)
 
 				if root != "" {
 					_ = SyncInbox(root, el, requestedBy)
@@ -203,10 +203,10 @@ func ApproveFireTool() tool.Tool {
 				}
 			} else {
 				// Denied — notify requester
-				el.Send("ceo", []string{requestedBy},
+				el.Send("ceo", []string{requestedBy}, nil,
 					fmt.Sprintf("Firing Request %s Denied", fireID),
 					fmt.Sprintf("Your request to fire %s has been denied.\n\n**CEO Comments:** %s", targetAgent, comments),
-					round)
+					round, false)
 
 				if root != "" {
 					_ = SyncInbox(root, el, requestedBy)
