@@ -29,6 +29,8 @@ var ToolCosts = map[string]int{
 	"approve_fire":          3,
 	"get_coffee":            3,
 	"call_group_meeting":    5,
+	"update_stock_price":    3,
+	"check_stock_price":     1,
 }
 
 // GetToolCost returns the AP cost for a tool. Unknown tools default to 2.

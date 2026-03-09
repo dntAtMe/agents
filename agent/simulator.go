@@ -440,6 +440,15 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 		}
 	}
 
+	// Inject stock price info for C-suite agents
+	if stockRenderer, ok := state["stock_renderer"].(func(string) string); ok {
+		if stockInfo := stockRenderer(agentName); stockInfo != "" {
+			sb.WriteString("\n")
+			sb.WriteString(stockInfo)
+			sb.WriteString("\n")
+		}
+	}
+
 	return sb.String()
 }
 

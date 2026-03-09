@@ -107,6 +107,11 @@ type Model struct {
 	// Round progress — tracks which agents have completed this round
 	roundCompleted map[string]bool
 
+	// Stock price
+	stockPrice     float64
+	stockDelta     float64
+	stockSentiment string
+
 	// Pause mode
 	paused        bool
 	pauseCh       chan struct{}       // send to pause simulation
@@ -476,6 +481,18 @@ func (m *Model) handleEvent(ev Event) {
 			}
 		}
 
+	case "stock_update":
+		if price, ok := ev.Data["price"].(float64); ok {
+			m.stockPrice = price
+		}
+		if delta, ok := ev.Data["delta"].(float64); ok {
+			m.stockDelta = delta
+		}
+		if sentiment, ok := ev.Data["sentiment"].(string); ok {
+			m.stockSentiment = sentiment
+		}
+		m.appendLog(fmt.Sprintf("[%s] Stock: $%.2f (%+.2f) — %s", ts, m.stockPrice, m.stockDelta, m.stockSentiment))
+
 	case "pause_ack":
 		// Simulation confirms it's paused, with state snapshot
 		m.paused = true
@@ -675,7 +692,23 @@ func (m *Model) renderHeader() string {
 	}
 	tabs := fmt.Sprintf("[%s|%s]", dashTab, detailTab)
 
-	header := fmt.Sprintf("  Company Sim [%s]   %s%s  %s", status, roundInfo, activeInfo, tabs)
+	stockInfo := ""
+	if m.stockPrice > 0 {
+		arrow := "→"
+		var stockStyle lipgloss.Style
+		if m.stockDelta > 0 {
+			arrow = "↑"
+			stockStyle = energyHighStyle
+		} else if m.stockDelta < 0 {
+			arrow = "↓"
+			stockStyle = energyLowStyle
+		} else {
+			stockStyle = energyMidStyle
+		}
+		stockInfo = "  " + stockStyle.Render(fmt.Sprintf("$%.2f %s%+.2f", m.stockPrice, arrow, m.stockDelta))
+	}
+
+	header := fmt.Sprintf("  Company Sim [%s]   %s%s%s  %s", status, roundInfo, activeInfo, stockInfo, tabs)
 
 	w := m.width
 	if w < 40 {
@@ -741,6 +774,8 @@ func abbreviateAgent(name string) string {
 		return "FE"
 	case "devops":
 		return "DO"
+	case "shareholders":
+		return "SH"
 	default:
 		if len(name) > 4 {
 			return strings.ToUpper(name[:4])

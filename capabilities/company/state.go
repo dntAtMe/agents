@@ -24,6 +24,7 @@ const (
 	KeyFileSnapshots  = "file_snapshots"
 	KeyCommandLog     = "command_log"
 	KeyActionPoints   = "action_points"
+	KeyStockPrice     = "stock_price"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -240,6 +241,18 @@ func GetActionPointTracker(state map[string]any) *ActionPointTracker {
 		}
 	}
 	return nil
+}
+
+// GetStockTracker retrieves or creates the StockTracker in shared state.
+func GetStockTracker(state map[string]any) *StockTracker {
+	if v, ok := state[KeyStockPrice]; ok {
+		if st, ok := v.(*StockTracker); ok {
+			return st
+		}
+	}
+	st := NewStockTracker(100.0)
+	state[KeyStockPrice] = st
+	return st
 }
 
 // GetFiredAgents returns the map of fired agents from state.

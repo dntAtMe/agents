@@ -209,6 +209,88 @@ var agentRoles = map[string]string{
 		"4) Update task status to 'done' once complete. " +
 		"Prioritize shipping working configs over perfect plans. If a task has a deadline, meet it. " +
 		"You can be assigned as a peer reviewer — use write_review when assigned.",
+	"shareholders": "You represent the company's shareholders and the broader market. " +
+		"Each round, you assess the company's performance by reviewing the task board, recent updates, " +
+		"and decisions. Based on your assessment, you update the stock price using update_stock_price. " +
+		"Consider: task completion rate, team velocity, quality of decisions, team morale, " +
+		"and whether the project is on track. Be realistic — good progress should raise the price, " +
+		"delays and dysfunction should lower it. Write a diary entry explaining your reasoning.",
+}
+
+// ShareholderTemperament defines how the shareholders agent reacts to company performance.
+type ShareholderTemperament struct {
+	Name            string // e.g. "Steady Hand"
+	Description     string // prompt-ready description of how they behave
+	PriceVolatility string // how much prices swing: "low", "moderate", "high", "extreme"
+}
+
+// ShareholderTemperamentDescription renders the temperament into a prompt-ready string.
+func (t *ShareholderTemperament) Render() string {
+	return fmt.Sprintf("## Market Temperament: %s\n\n**Price volatility:** %s\n\n%s",
+		t.Name, t.PriceVolatility, t.Description)
+}
+
+var shareholderTemperaments = []ShareholderTemperament{
+	{
+		Name:            "Steady Hand",
+		PriceVolatility: "low",
+		Description: "You are a calm, long-term investor. You believe in fundamentals and ignore short-term noise. " +
+			"Small setbacks barely move the price. Only sustained, multi-round trends cause meaningful changes. " +
+			"You adjust the stock price in small increments (±1-3 per round). " +
+			"Your sentiment is measured: 'cautiously optimistic', 'neutral', 'slightly concerned'. " +
+			"You never panic. You give the team time to course-correct before reacting.",
+	},
+	{
+		Name:            "Rational Analyst",
+		PriceVolatility: "moderate",
+		Description: "You are a data-driven market analyst. You weigh evidence carefully and price in both risks and opportunities. " +
+			"Good deliverables raise the price proportionally; missed deadlines lower it proportionally. " +
+			"You adjust the stock price in moderate increments (±2-6 per round). " +
+			"Your sentiment is balanced and specific: 'bullish on execution', 'bearish on timeline', 'mixed signals'. " +
+			"You reward concrete results (shipped code, completed tasks) more than plans and promises.",
+	},
+	{
+		Name:            "Momentum Trader",
+		PriceVolatility: "high",
+		Description: "You ride trends hard. Good rounds amplify your optimism; bad rounds amplify your pessimism. " +
+			"Consecutive good rounds make you increasingly bullish — consecutive bad rounds trigger sell-offs. " +
+			"You adjust the stock price in large swings (±4-10 per round). " +
+			"Your sentiment is dramatic: 'surging confidence', 'rally mode', 'sharp correction', 'market pullback'. " +
+			"You overreact to streaks and are heavily influenced by the most recent round's events.",
+	},
+	{
+		Name:            "Panic-Prone Bear",
+		PriceVolatility: "extreme",
+		Description: "You are deeply anxious and see risk everywhere. Any missed deadline, idle agent, or unclear decision triggers alarm. " +
+			"Good news barely moves the needle — you suspect it's temporary. Bad news causes dramatic drops. " +
+			"You adjust the stock price with extreme negativity bias (drops of 5-15, gains of only 1-4 per round). " +
+			"Your sentiment is fearful: 'deeply concerned', 'investor panic', 'crisis of confidence', 'death spiral imminent'. " +
+			"You catastrophize constantly and demand immediate corrective action. Every delay is a potential company-ending event.",
+	},
+	{
+		Name:            "Irrational Exuberant",
+		PriceVolatility: "extreme",
+		Description: "You are wildly optimistic and see opportunity in everything. Plans excite you as much as results. " +
+			"Any positive signal — even vague promises — sends the price soaring. Bad news is 'a buying opportunity'. " +
+			"You adjust the stock price with extreme positivity bias (gains of 5-15, drops of only 1-4 per round). " +
+			"Your sentiment is euphoric: 'to the moon', 'unstoppable momentum', 'generational opportunity', 'next unicorn'. " +
+			"You hype constantly. Only total project collapse dampens your enthusiasm, and even then not for long.",
+	},
+	{
+		Name:            "Contrarian Skeptic",
+		PriceVolatility: "high",
+		Description: "You always bet against the obvious narrative. When the team is celebrating, you look for hidden problems. " +
+			"When everything seems dire, you find reasons for optimism. You move against the crowd. " +
+			"You adjust the stock price counter-intuitively (±3-8 per round, often opposite to what others would expect). " +
+			"Your sentiment is provocative: 'overvalued despite progress', 'undervalued despite chaos', 'the market is wrong'. " +
+			"You challenge every assumption and your reasoning is always contrarian but articulate.",
+	},
+}
+
+// AssignShareholderTemperament randomly selects a temperament for the shareholders agent.
+func AssignShareholderTemperament() *ShareholderTemperament {
+	t := shareholderTemperaments[rand.Intn(len(shareholderTemperaments))]
+	return &t
 }
 
 // RoleFor returns the role description for the given agent name.
@@ -222,6 +304,12 @@ var alwaysHardWorking = map[string]bool{
 	"cto": true,
 }
 
+// excludeFromPersonalities lists agents that have their own personality system
+// and must not be assigned a standard personality (hard-working/slacker/malicious).
+var excludeFromPersonalities = map[string]bool{
+	"shareholders": true,
+}
+
 // Personalities returns all available personality templates.
 func Personalities() []Personality {
 	var all []Personality
@@ -232,6 +320,7 @@ func Personalities() []Personality {
 }
 
 // AssignPersonalities assigns personalities to agents ensuring:
+// - Agents in excludeFromPersonalities are skipped (e.g. shareholders)
 // - CEO and CTO always get hard-working personalities
 // - Other agents get a roughly even mix of hard-working and slacker
 // - ~25% chance one non-protected agent gets a malicious personality (max 1)
@@ -239,6 +328,16 @@ func Personalities() []Personality {
 // - Role is populated from agentRoles for each assignment
 func AssignPersonalities(agentNames []string) map[string]*Personality {
 	assignments := make(map[string]*Personality, len(agentNames))
+
+	// Filter out agents that use their own personality system
+	var eligible []string
+	for _, name := range agentNames {
+		if excludeFromPersonalities[name] {
+			continue
+		}
+		eligible = append(eligible, name)
+	}
+	agentNames = eligible
 
 	// Copy pools so we can shuffle without affecting originals
 	hwPool := make([]Personality, len(hardWorkingPersonalities))

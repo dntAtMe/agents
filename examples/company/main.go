@@ -123,18 +123,32 @@ func main() {
 		"Use read_updates, read_task_board, and read_file to understand the current state before acting."
 
 	// --- Assign personalities ---
-	agentNames := []string{
+	// Agents that get personalities (shareholders is excluded)
+	personalityAgents := []string{
 		"ceo", "product-manager", "cto", "architect",
 		"project-manager", "backend-dev", "frontend-dev", "devops",
 	}
-	personalities := company.AssignPersonalities(agentNames)
+	// All agents including shareholders
+	agentNames := []string{
+		"ceo", "product-manager", "cto", "architect",
+		"project-manager", "backend-dev", "frontend-dev", "devops",
+		"shareholders",
+	}
+	personalities := company.AssignPersonalities(personalityAgents)
+	shareholderTemperament := company.AssignShareholderTemperament()
 
-	// Write personality files to workspace
-	for _, name := range agentNames {
+	// Write personality files to workspace (skip shareholders — handled separately)
+	for _, name := range personalityAgents {
 		p := personalities[name]
 		personalityPath := filepath.Join(workspaceRoot, name, "personality.md")
 		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
 		_ = os.WriteFile(personalityPath, []byte(p.Description()), 0o644)
+	}
+	// Write shareholders temperament file
+	{
+		personalityPath := filepath.Join(workspaceRoot, "shareholders", "personality.md")
+		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
+		_ = os.WriteFile(personalityPath, []byte(shareholderTemperament.Render()), 0o644)
 	}
 
 	// --- Build Org Hierarchy ---
@@ -285,6 +299,7 @@ func main() {
 			viewFireRequests,
 			approveFire,
 			getCoffee,
+			company.CheckStockPriceTool(),
 		).
 		HandoffTo("product-manager", "cto", "project-manager").
 		Build())
@@ -372,6 +387,7 @@ func main() {
 			recordPiP,
 			requestFire,
 			getCoffee,
+			company.CheckStockPriceTool(),
 		).
 		HandoffTo("architect").
 		Build())
@@ -600,6 +616,23 @@ func main() {
 		).
 		Build())
 
+	// Shareholders (runs last each round, assesses company performance)
+	registry.Register(agent.New("shareholders").
+		PromptBuilder(prompt.NewBuilder().
+			Add(prompt.Identity(company.RoleFor("shareholders"))).
+			Add(prompt.Mixin{Name: "MarketTemperament", Content: shareholderTemperament.Render()}).
+			Add(prompt.Context(contextInstruction)).
+			Add(prompt.Guardrails(diaryInstruction+"\n"+energyInstruction))).
+		Tools(
+			company.ReadTaskBoardTool(),
+			company.ReadUpdatesTool(),
+			company.ReadDecisionsTool(),
+			company.ReadFileTool(),
+			company.UpdateStockPriceTool(),
+			company.WriteDiaryTool(),
+		).
+		Build())
+
 	// Validate all handoff targets
 	if err := registry.Finalize(); err != nil {
 		fmt.Fprintf(os.Stderr, "Registry error: %v\n", err)
@@ -657,6 +690,24 @@ func main() {
 					remaining, -apTracker.HardCap,
 				)
 			}
+
+			// Send stock_update event to TUI when stock price changes
+			if fc.Name == "update_stock_price" {
+				st := company.GetStockTracker(hc.State)
+				delta := 0.0
+				if len(st.History) > 1 {
+					delta = st.History[len(st.History)-1].Delta
+				}
+				events <- tui.Event{
+					Type:  "stock_update",
+					Agent: agentName,
+					Data: map[string]any{
+						"price":     st.Current,
+						"delta":     delta,
+						"sentiment": st.Sentiment,
+					},
+				}
+			}
 			return nil
 		},
 	}
@@ -668,6 +719,9 @@ func main() {
 		}
 	}
 
+	// Initialize stock tracker
+	stockTracker := company.NewStockTracker(100.0)
+
 	// Build initial state with org hierarchy and relationship renderer
 	initialState := map[string]any{
 		"workspace_root":          workspaceRoot,
@@ -675,6 +729,7 @@ func main() {
 		company.KeyOrgHierarchy:   orgHierarchy,
 		company.KeyFiredAgents:    map[string]bool{},
 		company.KeyActionPoints:   apTracker,
+		company.KeyStockPrice:     stockTracker,
 	}
 
 	// Store relationship renderer as a closure (avoids circular import)
@@ -697,12 +752,23 @@ func main() {
 		)
 	}
 
+	// Store stock renderer — only CEO and CTO see stock info in activation prompt
+	csuite := map[string]bool{"ceo": true, "cto": true}
+	initialState["stock_renderer"] = func(agentName string) string {
+		if !csuite[agentName] {
+			return ""
+		}
+		return "📈 " + stockTracker.RenderBrief() + "\n" +
+			"Use check_stock_price for detailed history. The shareholders assess performance each round."
+	}
+
 	simConfig := &agent.SimulationConfig{
 		MaxRounds:    15,
 		InitialState: initialState,
 		AgentOrder: []string{
 			"ceo", "product-manager", "cto", "architect",
 			"project-manager", "backend-dev", "frontend-dev", "devops",
+			"shareholders",
 		},
 		PauseCh:  pauseCh,
 		ResumeCh: resumeCh,
