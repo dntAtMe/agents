@@ -6,7 +6,7 @@ import (
 
 func TestPersonalitiesReturnsAll(t *testing.T) {
 	ps := Personalities()
-	expectedCount := len(hardWorkingPersonalities) + len(slackerPersonalities)
+	expectedCount := len(hardWorkingPersonalities) + len(slackerPersonalities) + len(maliciousPersonalities)
 	if len(ps) != expectedCount {
 		t.Fatalf("expected %d personalities, got %d", expectedCount, len(ps))
 	}
@@ -16,10 +16,16 @@ func TestPersonalitiesReturnsAll(t *testing.T) {
 		if p.Name == "" {
 			t.Error("personality name should not be empty")
 		}
-		if p.Description == "" {
-			t.Error("personality description should not be empty")
+		if p.Motivation == "" {
+			t.Errorf("personality %q has empty Motivation", p.Name)
 		}
-		if p.WorkEthic != HardWorking && p.WorkEthic != Slacker {
+		if p.CommunicationStyle == "" {
+			t.Errorf("personality %q has empty CommunicationStyle", p.Name)
+		}
+		if p.WorkCulture == "" {
+			t.Errorf("personality %q has empty WorkCulture", p.Name)
+		}
+		if p.WorkEthic != HardWorking && p.WorkEthic != Slacker && p.WorkEthic != Malicious {
 			t.Errorf("personality %q has invalid work ethic: %q", p.Name, p.WorkEthic)
 		}
 		names[p.Name] = true
@@ -57,14 +63,19 @@ func TestAssignPersonalities(t *testing.T) {
 		if p.Name == "" {
 			t.Errorf("agent %s has empty personality name", name)
 		}
-		if p.Description == "" {
-			t.Errorf("agent %s has empty personality description", name)
+		if p.Motivation == "" {
+			t.Errorf("agent %s has empty Motivation", name)
+		}
+		if p.CommunicationStyle == "" {
+			t.Errorf("agent %s has empty CommunicationStyle", name)
+		}
+		if p.WorkCulture == "" {
+			t.Errorf("agent %s has empty WorkCulture", name)
 		}
 	}
 }
 
 func TestAssignPersonalities_CEOAndCTOAlwaysHardWorking(t *testing.T) {
-	// Run multiple times to test randomness
 	for i := 0; i < 20; i++ {
 		agents := []string{"ceo", "cto", "architect", "project-manager", "backend-dev", "frontend-dev", "devops", "product-manager"}
 		assignments := AssignPersonalities(agents)
@@ -78,11 +89,23 @@ func TestAssignPersonalities_CEOAndCTOAlwaysHardWorking(t *testing.T) {
 	}
 }
 
+func TestAssignPersonalities_CEOAndCTONeverMalicious(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		agents := []string{"ceo", "cto", "architect", "project-manager", "backend-dev", "frontend-dev", "devops", "product-manager"}
+		assignments := AssignPersonalities(agents)
+
+		if assignments["ceo"].WorkEthic == Malicious {
+			t.Errorf("iteration %d: CEO should never be malicious", i)
+		}
+		if assignments["cto"].WorkEthic == Malicious {
+			t.Errorf("iteration %d: CTO should never be malicious", i)
+		}
+	}
+}
+
 func TestAssignPersonalities_MixOfWorkEthics(t *testing.T) {
-	// With 8 agents (2 forced hard-working + 6 others alternating), we should get a mix
 	agents := []string{"ceo", "cto", "architect", "project-manager", "backend-dev", "frontend-dev", "devops", "product-manager"}
 
-	// Run multiple times and check we get both types among non-protected agents
 	sawSlacker := false
 	sawHardWorking := false
 	for i := 0; i < 20; i++ {
@@ -119,7 +142,6 @@ func TestAssignPersonalitiesMoreAgentsThanPersonalities(t *testing.T) {
 		t.Fatalf("expected %d assignments, got %d", len(agents), len(assignments))
 	}
 
-	// All agents should have a valid personality
 	for _, name := range agents {
 		if assignments[name] == nil {
 			t.Errorf("agent %s has nil personality", name)
@@ -130,12 +152,15 @@ func TestAssignPersonalitiesMoreAgentsThanPersonalities(t *testing.T) {
 func TestWorkEthicCounts(t *testing.T) {
 	hw := 0
 	sl := 0
+	mal := 0
 	for _, p := range Personalities() {
 		switch p.WorkEthic {
 		case HardWorking:
 			hw++
 		case Slacker:
 			sl++
+		case Malicious:
+			mal++
 		}
 	}
 	if hw != len(hardWorkingPersonalities) {
@@ -143,5 +168,64 @@ func TestWorkEthicCounts(t *testing.T) {
 	}
 	if sl != len(slackerPersonalities) {
 		t.Errorf("expected %d slacker, got %d", len(slackerPersonalities), sl)
+	}
+	if mal != len(maliciousPersonalities) {
+		t.Errorf("expected %d malicious, got %d", len(maliciousPersonalities), mal)
+	}
+}
+
+func TestMaliciousPoolHasThreeEntries(t *testing.T) {
+	if len(maliciousPersonalities) != 3 {
+		t.Errorf("expected 3 malicious personalities, got %d", len(maliciousPersonalities))
+	}
+}
+
+func TestAtMostOneMaliciousPerSimulation(t *testing.T) {
+	agents := []string{"ceo", "cto", "architect", "project-manager", "backend-dev", "frontend-dev", "devops", "product-manager"}
+
+	for i := 0; i < 100; i++ {
+		assignments := AssignPersonalities(agents)
+		malCount := 0
+		for _, p := range assignments {
+			if p.WorkEthic == Malicious {
+				malCount++
+			}
+		}
+		if malCount > 1 {
+			t.Errorf("iteration %d: expected at most 1 malicious, got %d", i, malCount)
+		}
+	}
+}
+
+func TestAssignPersonalities_RolePopulated(t *testing.T) {
+	agents := []string{"ceo", "cto", "architect", "backend-dev"}
+	assignments := AssignPersonalities(agents)
+
+	for _, name := range agents {
+		p := assignments[name]
+		if p.Role == "" {
+			t.Errorf("agent %s should have Role populated", name)
+		}
+	}
+}
+
+func TestDescriptionReturnsNonEmpty(t *testing.T) {
+	for _, p := range Personalities() {
+		desc := p.Description()
+		if desc == "" {
+			t.Errorf("personality %q returned empty Description()", p.Name)
+		}
+	}
+}
+
+func TestRoleFor(t *testing.T) {
+	role := RoleFor("ceo")
+	if role == "" {
+		t.Error("RoleFor(\"ceo\") should return non-empty string")
+	}
+
+	unknown := RoleFor("nonexistent")
+	if unknown != "" {
+		t.Errorf("RoleFor(\"nonexistent\") should return empty, got %q", unknown)
 	}
 }

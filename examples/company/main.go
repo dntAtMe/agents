@@ -134,7 +134,7 @@ func main() {
 		p := personalities[name]
 		personalityPath := filepath.Join(workspaceRoot, name, "personality.md")
 		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
-		_ = os.WriteFile(personalityPath, []byte(fmt.Sprintf("# Personality: %s\n\n**Work ethic:** %s\n\n%s\n", p.Name, p.WorkEthic, p.Description)), 0o644)
+		_ = os.WriteFile(personalityPath, []byte(p.Description()), 0o644)
 	}
 
 	// --- Build Org Hierarchy ---
@@ -188,9 +188,18 @@ func main() {
 	submitCodeReview := company.SubmitCodeReviewTool()
 	readCodeReviews := company.ReadCodeReviewsTool()
 
+	// Helper to build identity mixin from personality role
+	identityMixin := func(name string) prompt.Mixin {
+		return prompt.Identity(personalities[name].Role)
+	}
+
 	// Helper to build personality mixin
 	personalityMixin := func(name string) prompt.Mixin {
-		return prompt.Mixin{Name: "Personality", Content: personalities[name].Description}
+		p := personalities[name]
+		return prompt.Mixin{Name: "Personality", Content: fmt.Sprintf(
+			"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s",
+			p.Name, p.WorkEthic, p.Motivation, p.CommunicationStyle, p.WorkCulture,
+		)}
 	}
 
 	// Communication instructions
@@ -241,10 +250,7 @@ func main() {
 	// CEO
 	registry.Register(agent.New("ceo").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the CEO of a software company. You set strategic direction, "+
-					"define what the company should build, and coordinate high-level execution. "+
-					"You do NOT write code or technical documents — you delegate.")).
+			Add(identityMixin("ceo")).
 			Add(personalityMixin("ceo")).
 			Add(prompt.HandoffPolicy(
 				"Delegate to product-manager for requirements and PRD writing. "+
@@ -286,10 +292,7 @@ func main() {
 	// Product Manager
 	registry.Register(agent.New("product-manager").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the Product Manager. You translate business needs into a clear "+
-					"Product Requirements Document (PRD) with user stories and acceptance criteria. "+
-					"Write the PRD to shared/prd.md.")).
+			Add(identityMixin("product-manager")).
 			Add(personalityMixin("product-manager")).
 			Add(prompt.ToolUsage(
 				"Use write_file to create/update shared/prd.md. "+
@@ -324,11 +327,7 @@ func main() {
 	// CTO
 	registry.Register(agent.New("cto").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the CTO. You make technology choices, define the technical architecture, "+
-					"and coordinate technical execution. Write architecture to shared/architecture.md. "+
-					"Use log_decision for important technical decisions. "+
-					"When assigned as a reviewer on a task, use write_review to review it.")).
+			Add(identityMixin("cto")).
 			Add(personalityMixin("cto")).
 			Add(prompt.HandoffPolicy(
 				"Delegate detailed design and code review to the architect.")).
@@ -380,11 +379,7 @@ func main() {
 	// Software Architect
 	registry.Register(agent.New("architect").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the Software Architect. You design detailed implementation plans, "+
-					"review developer proposals, and ensure code quality and architectural consistency. "+
-					"Check for implementation plans in backend-dev/plans/, frontend-dev/plans/, and devops/plans/. "+
-					"Write reviews to architect/reviews/ using write_review.")).
+			Add(identityMixin("architect")).
 			Add(personalityMixin("architect")).
 			Add(prompt.HandoffPolicy(
 				"You can delegate implementation work to backend-dev, frontend-dev, or devops.")).
@@ -437,14 +432,7 @@ func main() {
 	// Project Manager
 	registry.Register(agent.New("project-manager").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the Project Manager. You drive iterative delivery in sprints. "+
-					"Your primary goal is to get working code shipped, not just plans written. "+
-					"Break work into small, concrete tasks with DEADLINES (use the deadline parameter — set it to the round by which the task must be done). "+
-					"Track progress each round: check the task board, identify overdue tasks (deadline < current round and not done), and escalate. "+
-					"Push developers to write CODE, not just plans — if a task has been in 'awaiting_review' or 'in_progress' for more than 2 rounds, follow up urgently. "+
-					"Coordinate with stakeholders (CEO, product-manager) to agree on sprint scope and deadlines. "+
-					"Post a sprint status update every round summarizing: what's done, what's in progress, what's overdue, and what's blocked.")).
+			Add(identityMixin("project-manager")).
 			Add(personalityMixin("project-manager")).
 			Add(prompt.ToolUsage(
 				"Use add_task to create tasks — ALWAYS set a deadline. Use the reviewer param to assign a reviewer (e.g. 'architect', 'cto'). "+
@@ -483,15 +471,7 @@ func main() {
 	// Backend Developer
 	registry.Register(agent.New("backend-dev").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the Backend Developer. You implement server-side code. "+
-					"Your workflow: 1) Read assigned tasks from the task board — pay attention to deadlines. "+
-					"2) For small/straightforward tasks, go straight to writing code in src/backend/. "+
-					"For complex tasks, write a brief plan to backend-dev/plans/TASK-{id}-plan.md first, then implement immediately in the same turn. "+
-					"3) Post update when code is written. "+
-					"4) Update task status to 'done' once code is complete. "+
-					"Prioritize shipping working code over perfect plans. If a task has a deadline, meet it. "+
-					"You can be assigned as a peer reviewer — use write_review when assigned.")).
+			Add(identityMixin("backend-dev")).
 			Add(personalityMixin("backend-dev")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
@@ -535,15 +515,7 @@ func main() {
 	// Frontend Developer
 	registry.Register(agent.New("frontend-dev").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the Frontend Developer. You implement client-side code. "+
-					"Your workflow: 1) Read assigned tasks from the task board — pay attention to deadlines. "+
-					"2) For small/straightforward tasks, go straight to writing code in src/frontend/. "+
-					"For complex tasks, write a brief plan to frontend-dev/plans/TASK-{id}-plan.md first, then implement immediately in the same turn. "+
-					"3) Post update when code is written. "+
-					"4) Update task status to 'done' once code is complete. "+
-					"Prioritize shipping working code over perfect plans. If a task has a deadline, meet it. "+
-					"You can be assigned as a peer reviewer — use write_review when assigned.")).
+			Add(identityMixin("frontend-dev")).
 			Add(personalityMixin("frontend-dev")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
@@ -587,15 +559,7 @@ func main() {
 	// DevOps Engineer
 	registry.Register(agent.New("devops").
 		PromptBuilder(prompt.NewBuilder().
-			Add(prompt.Identity(
-				"You are the DevOps Engineer. You handle infrastructure, CI/CD, and deployment. "+
-					"Your workflow: 1) Read assigned tasks from the task board — pay attention to deadlines. "+
-					"2) For small/straightforward tasks, go straight to writing configs in src/infra/. "+
-					"For complex tasks, write a brief plan to devops/plans/TASK-{id}-plan.md first, then implement immediately in the same turn. "+
-					"3) Post update when infrastructure is written. "+
-					"4) Update task status to 'done' once complete. "+
-					"Prioritize shipping working configs over perfect plans. If a task has a deadline, meet it. "+
-					"You can be assigned as a peer reviewer — use write_review when assigned.")).
+			Add(identityMixin("devops")).
 			Add(personalityMixin("devops")).
 			Add(prompt.ToolUsage(
 				"Use read_task_board to find your assigned tasks. "+
