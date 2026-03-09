@@ -43,6 +43,7 @@ type agentInfo struct {
 	LastTool   string
 	AP         int // remaining action points
 	MaxAP      int // max AP this round (for bar rendering)
+	GotMail    bool // received email this round
 }
 
 type toolCallInfo struct {
@@ -67,10 +68,11 @@ type detailEntry struct {
 	Tool      string
 	Iteration int
 	Tokens    int32
+	Expanded  bool // for collapsible tool results
 }
 
 type agentDetail struct {
-	Entries []detailEntry // ring buffer, last ~50
+	Entries []detailEntry // ring buffer, last ~200
 }
 
 // Model is the bubbletea model for the simulation dashboard.
@@ -83,7 +85,7 @@ type Model struct {
 	activeAgent string
 	agentStatus map[string]agentInfo
 	toolCalls   []toolCallInfo // ring buffer, last ~8
-	eventLog    []string       // ring buffer, last ~15
+	eventLog    []string       // ring buffer, last ~25
 	done        bool
 	reason      string
 	width       int
@@ -94,14 +96,47 @@ type Model struct {
 	detailScroll int
 	detailAgent  int // index into m.agents for selected agent in detail view
 	detailFollow bool
+
+	// Detail view filter (press / to activate)
+	detailFilter   string
+	detailFiltering bool
+
+	// Thinking preview — last thought from active agent
+	lastThinking string
+
+	// Round progress — tracks which agents have completed this round
+	roundCompleted map[string]bool
+
+	// Pause mode
+	paused        bool
+	pauseCh       chan struct{}       // send to pause simulation
+	resumeCh      chan struct{}       // send to resume simulation
+	injectCh      chan InjectEmail    // send composed emails for injection
+	pauseMode     pauseScreen
+	compose       composeState
+	composeCursor int                 // cursor position in To field
+	stateScroll   int                 // scroll in state view
+	pauseSnapshot *PauseStateSnapshot
+}
+
+// InjectEmail carries email data from the TUI compose form to the main goroutine.
+type InjectEmail struct {
+	From    string
+	To      []string
+	Subject string
+	Body    string
 }
 
 // New creates a new TUI model that reads events from the given channel.
-func New(events chan Event) *Model {
+func New(events chan Event, pauseCh, resumeCh chan struct{}, injectCh chan InjectEmail) *Model {
 	return &Model{
-		events:      events,
-		agentStatus: make(map[string]agentInfo),
-		detailData:  make(map[string]*agentDetail),
+		events:         events,
+		agentStatus:    make(map[string]agentInfo),
+		detailData:     make(map[string]*agentDetail),
+		roundCompleted: make(map[string]bool),
+		pauseCh:        pauseCh,
+		resumeCh:       resumeCh,
+		injectCh:       injectCh,
 	}
 }
 
@@ -125,6 +160,31 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If paused, delegate all keys to pause handler
+		if m.paused {
+			return m, m.handlePauseKeys(msg)
+		}
+
+		// Detail filter mode
+		if m.detailFiltering {
+			switch msg.String() {
+			case "esc":
+				m.detailFiltering = false
+				m.detailFilter = ""
+			case "enter":
+				m.detailFiltering = false
+			case "backspace":
+				if len(m.detailFilter) > 0 {
+					m.detailFilter = m.detailFilter[:len(m.detailFilter)-1]
+				}
+			default:
+				if len(msg.String()) == 1 {
+					m.detailFilter += msg.String()
+				}
+			}
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -165,6 +225,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.detailScroll = 0
 			}
+		case "e":
+			if m.activeTab == tabDetail {
+				m.toggleDetailExpand()
+			}
+		case "/":
+			if m.activeTab == tabDetail {
+				m.detailFiltering = true
+				m.detailFilter = ""
+			}
+		case "p":
+			if !m.done {
+				m.requestPause()
+			}
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -177,6 +250,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForEvent(m.events)
 	}
 	return m, nil
+}
+
+func (m *Model) requestPause() {
+	// Non-blocking send to pause channel
+	select {
+	case m.pauseCh <- struct{}{}:
+		m.paused = true
+		m.pauseMode = pauseMain
+	default:
+		// Already a pause pending
+	}
+}
+
+func (m *Model) toggleDetailExpand() {
+	if len(m.agents) == 0 {
+		return
+	}
+	agentName := m.agents[m.detailAgent]
+	d := m.detailData[agentName]
+	if d == nil {
+		return
+	}
+	// Toggle expand on the entry nearest to current scroll position
+	// Find visible tool_end entries and toggle the first one
+	for i := range d.Entries {
+		if d.Entries[i].Kind == "tool_end" {
+			d.Entries[i].Expanded = !d.Entries[i].Expanded
+		}
+	}
 }
 
 func (m *Model) handleEvent(ev Event) {
@@ -210,6 +312,13 @@ func (m *Model) handleEvent(ev Event) {
 
 	case "round_start":
 		m.round = ev.Round
+		// Reset round tracking
+		m.roundCompleted = make(map[string]bool)
+		for _, name := range m.agents {
+			info := m.agentStatus[name]
+			info.GotMail = false
+			m.agentStatus[name] = info
+		}
 		m.appendLog(fmt.Sprintf("[%s] Round %d started", ts, ev.Round))
 
 	case "round_end":
@@ -244,8 +353,10 @@ func (m *Model) handleEvent(ev Event) {
 			info.Iterations = iter
 		}
 		m.agentStatus[ev.Agent] = info
+		m.roundCompleted[ev.Agent] = true
 		if m.activeAgent == ev.Agent {
 			m.activeAgent = ""
+			m.lastThinking = ""
 		}
 		status := "done"
 		if idle {
@@ -276,6 +387,10 @@ func (m *Model) handleEvent(ev Event) {
 			m.agentStatus[ev.Agent] = info
 		}
 		if text != "" {
+			// Update thinking preview
+			if ev.Agent == m.activeAgent {
+				m.lastThinking = truncate(text, 120)
+			}
 			m.appendDetail(ev.Agent, detailEntry{
 				Time:      ts,
 				Kind:      "thinking",
@@ -298,6 +413,10 @@ func (m *Model) handleEvent(ev Event) {
 		info := m.agentStatus[ev.Agent]
 		info.ToolCount++
 		info.LastTool = toolName
+		// Detect email receipt
+		if toolName == "check_inbox" || toolName == "send_email" {
+			info.GotMail = true
+		}
 		m.agentStatus[ev.Agent] = info
 		m.appendToolCall(toolCallInfo{
 			Agent:  ev.Agent,
@@ -357,6 +476,13 @@ func (m *Model) handleEvent(ev Event) {
 			}
 		}
 
+	case "pause_ack":
+		// Simulation confirms it's paused, with state snapshot
+		m.paused = true
+		if snap, ok := ev.Data["snapshot"].(*PauseStateSnapshot); ok {
+			m.pauseSnapshot = snap
+		}
+
 	case "channel_closed":
 		m.done = true
 	}
@@ -364,8 +490,8 @@ func (m *Model) handleEvent(ev Event) {
 
 func (m *Model) appendLog(entry string) {
 	m.eventLog = append(m.eventLog, entry)
-	if len(m.eventLog) > 15 {
-		m.eventLog = m.eventLog[len(m.eventLog)-15:]
+	if len(m.eventLog) > 25 {
+		m.eventLog = m.eventLog[len(m.eventLog)-25:]
 	}
 }
 
@@ -383,8 +509,8 @@ func (m *Model) appendDetail(agentName string, entry detailEntry) {
 		m.detailData[agentName] = d
 	}
 	d.Entries = append(d.Entries, entry)
-	if len(d.Entries) > 50 {
-		d.Entries = d.Entries[len(d.Entries)-50:]
+	if len(d.Entries) > 200 {
+		d.Entries = d.Entries[len(d.Entries)-200:]
 	}
 }
 
@@ -459,12 +585,42 @@ var (
 
 	energyEmptyStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("8")) // dim
+
+	progressDone = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("8"))
+
+	progressActive = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("10"))
+
+	progressPending = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("7"))
+
+	mailStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11"))
+
+	thinkingPreview = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("13")).
+			Italic(true)
+
+	filterStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11")).
+			Bold(true)
+
+	toolArgKey = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("12")).
+			Bold(true)
 )
 
 // View renders the TUI dashboard.
 func (m *Model) View() string {
 	if m.width == 0 {
 		return "Initializing..."
+	}
+
+	// Pause overlay takes over the whole screen
+	if m.paused {
+		return m.renderPauseOverlay()
 	}
 
 	var sections []string
@@ -482,9 +638,9 @@ func (m *Model) View() string {
 	if m.done {
 		sections = append(sections, m.renderFooter())
 	} else {
-		hint := "  Press Tab to switch views, q to quit"
+		hint := "  Tab: views  p: pause  q: quit"
 		if m.activeTab == tabDetail {
-			hint = "  Tab: views  h/l: agent  j/k: scroll  f: follow  q: quit"
+			hint = "  Tab: views  h/l: agent  j/k: scroll  f: follow  /: filter  e: expand  p: pause  q: quit"
 		}
 		sections = append(sections, idleStyle.Render(hint))
 	}
@@ -525,7 +681,72 @@ func (m *Model) renderHeader() string {
 	if w < 40 {
 		w = 40
 	}
-	return headerStyle.Width(w).Render(header)
+
+	var parts []string
+	parts = append(parts, headerStyle.Width(w).Render(header))
+
+	// Thinking preview line
+	if m.lastThinking != "" && m.activeAgent != "" {
+		preview := fmt.Sprintf("  %s: %s", m.activeAgent, m.lastThinking)
+		if len(preview) > w-4 {
+			preview = preview[:w-7] + "..."
+		}
+		parts = append(parts, thinkingPreview.Render(preview))
+	}
+
+	// Round progress bar
+	if m.round > 0 && len(m.agents) > 0 {
+		parts = append(parts, m.renderRoundProgress())
+	}
+
+	return strings.Join(parts, "\n")
+}
+
+func (m *Model) renderRoundProgress() string {
+	var parts []string
+	parts = append(parts, "  [")
+	for i, name := range m.agents {
+		if i > 0 {
+			parts = append(parts, " > ")
+		}
+		// Abbreviate agent name
+		short := abbreviateAgent(name)
+		if name == m.activeAgent {
+			parts = append(parts, progressActive.Render("▶"+short))
+		} else if m.roundCompleted[name] {
+			parts = append(parts, progressDone.Render(short))
+		} else {
+			parts = append(parts, progressPending.Render(short))
+		}
+	}
+	parts = append(parts, "]")
+	return strings.Join(parts, "")
+}
+
+func abbreviateAgent(name string) string {
+	switch name {
+	case "ceo":
+		return "CEO"
+	case "product-manager":
+		return "PM"
+	case "cto":
+		return "CTO"
+	case "architect":
+		return "ARCH"
+	case "project-manager":
+		return "PJM"
+	case "backend-dev":
+		return "BE"
+	case "frontend-dev":
+		return "FE"
+	case "devops":
+		return "DO"
+	default:
+		if len(name) > 4 {
+			return strings.ToUpper(name[:4])
+		}
+		return strings.ToUpper(name)
+	}
 }
 
 func (m *Model) renderMainArea() string {
@@ -570,6 +791,11 @@ func (m *Model) renderAgents() string {
 
 		label := fmt.Sprintf("%s %-16s %-7s", icon, name, info.Status)
 
+		// Email indicator
+		if info.GotMail {
+			label += mailStyle.Render(" ✉")
+		}
+
 		// Energy bar
 		if info.MaxAP > 0 {
 			label += "  " + renderEnergyBar(info.AP, info.MaxAP)
@@ -594,7 +820,7 @@ func (m *Model) renderAgents() string {
 
 func (m *Model) renderToolCalls() string {
 	var sb strings.Builder
-	sb.WriteString(sectionTitle.Render("Tool Calls"))
+	sb.WriteString(sectionTitle.Render("Tool Calls (by agent)"))
 	sb.WriteString("\n")
 
 	if len(m.toolCalls) == 0 {
@@ -603,25 +829,50 @@ func (m *Model) renderToolCalls() string {
 		return sb.String()
 	}
 
+	// Group tool calls by agent, show last 3 per agent
+	agentTools := make(map[string][]toolCallInfo)
+	var agentOrder []string
+	seen := make(map[string]bool)
 	for _, tc := range m.toolCalls {
-		toolDisplay := tc.Tool
-		if len(toolDisplay) > 16 {
-			toolDisplay = toolDisplay[:14] + ".."
+		if !seen[tc.Agent] {
+			seen[tc.Agent] = true
+			agentOrder = append(agentOrder, tc.Agent)
+		}
+		agentTools[tc.Agent] = append(agentTools[tc.Agent], tc)
+	}
+
+	for _, agentName := range agentOrder {
+		tools := agentTools[agentName]
+		// Show last 3
+		start := 0
+		if len(tools) > 3 {
+			start = len(tools) - 3
 		}
 
-		apTag := ""
-		if tc.APCost > 0 {
-			apTag = fmt.Sprintf("  -%dAP", tc.APCost)
-		}
-
-		if tc.Done {
-			line := fmt.Sprintf("  > %-16s %4dms%s", toolDisplay, tc.Duration, apTag)
-			sb.WriteString(toolDone.Render(line))
-		} else {
-			line := fmt.Sprintf("  * %-16s ...%s", toolDisplay, apTag)
-			sb.WriteString(toolRunning.Render(line))
-		}
+		short := abbreviateAgent(agentName)
+		sb.WriteString(idleStyle.Render(fmt.Sprintf("  %s:", short)))
 		sb.WriteString("\n")
+
+		for _, tc := range tools[start:] {
+			toolDisplay := tc.Tool
+			if len(toolDisplay) > 16 {
+				toolDisplay = toolDisplay[:14] + ".."
+			}
+
+			apTag := ""
+			if tc.APCost > 0 {
+				apTag = fmt.Sprintf("  -%dAP", tc.APCost)
+			}
+
+			if tc.Done {
+				line := fmt.Sprintf("    > %-16s %4dms%s", toolDisplay, tc.Duration, apTag)
+				sb.WriteString(toolDone.Render(line))
+			} else {
+				line := fmt.Sprintf("    * %-16s ...%s", toolDisplay, apTag)
+				sb.WriteString(toolRunning.Render(line))
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	return sb.String()
@@ -703,6 +954,16 @@ func (m *Model) renderDetail() string {
 	agentHeader := fmt.Sprintf("◉ %s  %s%s%s%s", agentName, info.Status, apStr, iterStr, tokStr)
 	sb.WriteString(activeStyle.Render(agentHeader))
 	sb.WriteString("\n")
+
+	// Filter indicator
+	if m.detailFilter != "" {
+		sb.WriteString(filterStyle.Render(fmt.Sprintf("  filter: %s", m.detailFilter)))
+		sb.WriteString("\n")
+	} else if m.detailFiltering {
+		sb.WriteString(filterStyle.Render("  filter: █"))
+		sb.WriteString("\n")
+	}
+
 	sb.WriteString(strings.Repeat("─", m.width-6))
 	sb.WriteString("\n")
 
@@ -721,6 +982,15 @@ func (m *Model) renderDetail() string {
 	}
 
 	for _, e := range d.Entries {
+		// Apply filter
+		if m.detailFilter != "" {
+			filterLower := strings.ToLower(m.detailFilter)
+			entryText := strings.ToLower(e.Kind + " " + e.Tool + " " + e.Content)
+			if !strings.Contains(entryText, filterLower) {
+				continue
+			}
+		}
+
 		switch e.Kind {
 		case "thinking":
 			header := thinkingStyle.Render(fmt.Sprintf("[%s] Thinking (iter %d)", e.Time, e.Iteration))
@@ -732,13 +1002,23 @@ func (m *Model) renderDetail() string {
 			header := detailToolStart.Render(fmt.Sprintf("[%s] >> %s", e.Time, e.Tool))
 			lines = append(lines, header)
 			if e.Content != "" {
-				lines = append(lines, detailContent.Render("  args: "+truncate(e.Content, contentWidth-8)))
+				// Color-code key names in tool args
+				colored := colorizeToolArgs(e.Content, contentWidth-8)
+				lines = append(lines, "  args: "+colored)
 			}
 		case "tool_end":
 			header := detailToolEnd.Render(fmt.Sprintf("[%s] << %s", e.Time, e.Tool))
 			lines = append(lines, header)
 			if e.Content != "" {
-				lines = append(lines, detailContent.Render("  result: "+truncate(e.Content, contentWidth-10)))
+				if e.Expanded {
+					// Show full result wrapped
+					for _, line := range wrapText(e.Content, contentWidth-10) {
+						lines = append(lines, detailContent.Render("  result: "+line))
+					}
+				} else {
+					// One-line summary
+					lines = append(lines, detailContent.Render("  result: "+truncate(e.Content, contentWidth-10)))
+				}
 			}
 		case "activated":
 			lines = append(lines, activeStyle.Render(fmt.Sprintf("[%s] Agent activated", e.Time)))
@@ -856,6 +1136,17 @@ func renderEnergyBar(current, max int) string {
 	}
 
 	return style.Render("⚡" + bar + " " + label)
+}
+
+// colorizeToolArgs highlights key names (e.g. "to:", "subject:") in tool arguments.
+func colorizeToolArgs(args string, maxLen int) string {
+	truncated := truncate(args, maxLen)
+	// Highlight common JSON key patterns
+	result := truncated
+	for _, key := range []string{"to:", "from:", "subject:", "body:", "file:", "path:", "content:", "name:", "status:", "agent:"} {
+		result = strings.ReplaceAll(result, `"`+key[:len(key)-1]+`"`, toolArgKey.Render(`"`+key[:len(key)-1]+`"`))
+	}
+	return result
 }
 
 func formatArgs(args map[string]any) string {

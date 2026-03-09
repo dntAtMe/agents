@@ -103,6 +103,11 @@ func main() {
 	tuiHooks := tui.Hooks(events)
 	tuiCb := tui.Callbacks(events)
 
+	// Pause/resume and email injection channels
+	pauseCh := make(chan struct{}, 1)
+	resumeCh := make(chan struct{}, 1)
+	injectCh := make(chan tui.InjectEmail, 4)
+
 	// Shared diary instruction appended to all agent prompts
 	diaryInstruction := "At the end of your turn, always write a diary entry with write_diary. " +
 		"Be honest and personal — reflect on your work, the project direction, " +
@@ -735,6 +740,31 @@ func main() {
 			"ceo", "product-manager", "cto", "architect",
 			"project-manager", "backend-dev", "frontend-dev", "devops",
 		},
+		PauseCh:  pauseCh,
+		ResumeCh: resumeCh,
+		OnPause: func(round int, agentIndex int, state map[string]any) {
+			// Build state snapshot for the TUI
+			snapshot := &tui.PauseStateSnapshot{
+				Round: round,
+			}
+			for _, name := range agentNames {
+				ai := tui.PauseAgentInfoEntry{
+					Name:   name,
+					Status: "unknown",
+				}
+				// Extract patience
+				if pm, ok := state["agent_patience"].(map[string]int); ok {
+					ai.Patience = pm[name]
+				}
+				snapshot.Agents = append(snapshot.Agents, ai)
+			}
+			events <- tui.Event{
+				Type: "pause_ack",
+				Data: map[string]any{
+					"snapshot": snapshot,
+				},
+			}
+		},
 		OnInitRound: func(round int, agents []string, state map[string]any) {
 			apTracker.InitRound(agents)
 		},
@@ -783,11 +813,27 @@ func main() {
 		simResult, simErr = agent.Simulate(ctx, client, registry, userPrompt, simConfig)
 	}()
 
+	// Email injection goroutine — watches injectCh for composed emails.
+	// Since the simulation is paused when injection happens, state access is safe.
+	go func() {
+		for email := range injectCh {
+			round := 0
+			if r, ok := initialState["current_round"].(int); ok {
+				round = r
+			}
+			el := company.GetEmailLog(initialState)
+			el.Send(email.From, email.To, nil, email.Subject, email.Body, round, false)
+			for _, recipient := range email.To {
+				_ = company.SyncInbox(workspaceRoot, el, recipient)
+			}
+		}
+	}()
+
 	// Suppress log output while TUI is running
 	log.SetOutput(os.NewFile(0, os.DevNull))
 
 	// Run TUI
-	p := tea.NewProgram(tui.New(events), tea.WithAltScreen())
+	p := tea.NewProgram(tui.New(events, pauseCh, resumeCh, injectCh), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)

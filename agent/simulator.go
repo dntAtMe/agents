@@ -36,6 +36,12 @@ type SimulationConfig struct {
 	OnRoundEnd      func(round int, state map[string]any) // optional callback
 	OnBetweenRounds func(ctx context.Context, round int, state map[string]any) // runs after OnRoundEnd, before next round
 
+	// Pause support — optional. If PauseCh is set, the simulation checks for
+	// pause signals after each agent completion and between rounds.
+	PauseCh  chan struct{}                              // TUI sends to request pause
+	ResumeCh chan struct{}                              // TUI sends to resume after pause
+	OnPause  func(round int, agentIndex int, state map[string]any) // called when pause triggers
+
 	// Tracing callbacks — all optional.
 	OnInitRound       func(round int, agents []string, state map[string]any) // called before agents run each round
 	OnSimulationStart func(prompt string, maxRounds int, agents []string)
@@ -223,7 +229,7 @@ func Simulate(
 
 		allIdle := true
 
-		for _, agentName := range agentOrder {
+		for agentIdx, agentName := range agentOrder {
 			// Skip fired agents
 			if fired, ok := state["fired_agents"].(map[string]bool); ok && fired[agentName] {
 				log.Printf("[Simulation] %s is fired, skipping", agentName)
@@ -290,6 +296,9 @@ func Simulate(
 			} else {
 				log.Printf("[Simulation]   %s: %s", agentName, truncate(result.FinalText, 100))
 			}
+
+			// Check for pause between agents
+			checkPause(config, round, agentIdx, state)
 		}
 
 		// Check termination: all idle or project marked complete
@@ -326,6 +335,9 @@ func Simulate(
 		if config.OnBetweenRounds != nil {
 			config.OnBetweenRounds(ctx, round, state)
 		}
+
+		// Check for pause between rounds
+		checkPause(config, round, -1, state)
 	}
 
 	log.Printf("[Simulation] Reached maximum rounds (%d)", maxRounds)
@@ -516,6 +528,21 @@ func patienceTier(patience int) string {
 		return "impatient and terse"
 	default:
 		return "highly impatient and escalation-prone"
+	}
+}
+
+// checkPause checks for a pause signal and blocks until resumed if triggered.
+func checkPause(config *SimulationConfig, round, agentIndex int, state map[string]any) {
+	if config.PauseCh == nil {
+		return
+	}
+	select {
+	case <-config.PauseCh:
+		if config.OnPause != nil {
+			config.OnPause(round, agentIndex, state)
+		}
+		<-config.ResumeCh // block until resume
+	default:
 	}
 }
 
