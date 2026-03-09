@@ -1,9 +1,9 @@
 # Agents - Company Simulation
 
-This project is a Go-based multi-agent simulation of a software company.  
-Eight role-based agents (CEO, PM, CTO, Architect, Project Manager, Backend, Frontend, DevOps) collaborate in rounds to turn a product request into requirements, architecture, tasks, code, reviews, and operational decisions.
+This project is a Go-based multi-agent company simulator.  
+Eight role-based agents (CEO, Product Manager, CTO, Architect, Project Manager, Backend, Frontend, DevOps) collaborate in rounds to turn a product request into requirements, architecture, tasks, code, reviews, and operational decisions.
 
-The simulation is stateful and file-backed: agents act through tools (tasking, docs, email, meetings, escalations, reviews), while shared state and workspace artifacts track the company over time.
+The simulation is stateful and file-backed: tools mutate shared in-memory state and sync durable artifacts into a `workspace/` directory.
 
 ## Run
 
@@ -11,29 +11,60 @@ The simulation is stateful and file-backed: agents act through tools (tasking, d
 GEMINI_API_KEY=your_key go run ./examples/company "Build a simple todo REST API with CRUD operations"
 ```
 
-Generated outputs are written under `workspace/` (for example: `shared/prd.md`, `shared/architecture.md`, `shared/task_board.md`, `shared/updates.md`, `src/`, agent diaries/inboxes, and `trace.jsonl`).
+The run starts an interactive TUI dashboard.  
+Artifacts are written under `workspace/` (for example: `shared/prd.md`, `shared/architecture.md`, `shared/task_board.md`, `shared/updates.md`, `shared/decisions.md`, `shared/code-reviews/`, `shared/meetings/`, `shared/coffee/`, `shared/escalations.md`, `shared/pips.md`, `shared/firings.md`, `shared/command-log.md`, `src/`, per-agent `diary.md`/`inbox.md`/`personality.md`, and `trace.jsonl`).
 
-## Architecture (Company Simulation)
+## Simulation Capabilities
+
+- Round-based simulation with CEO bootstrap (round 0), configurable max rounds, and early stop on `project_status=complete` or all-agents-idle.
+- ReACT agent runtime with tool calling, lifecycle hooks, token/iteration accounting, and optional nested handoffs between agents.
+- Role and behavior modeling via prompt mixins, org hierarchy, and randomized personalities (hard-working/slacker/malicious).
+- Persistent workspace collaboration: PRD, architecture docs, ADRs, task board, status updates, diaries, and source files.
+- Task execution workflow with assignees, priorities, dependencies, deadlines, reviewer assignment, and status transitions.
+- Coding toolchain with file read/write/edit/search/diff plus a guarded `run_command` tool (allow-list, timeout, capped output, safe env).
+- Structured code reviews (`start_code_review`, inline comments, verdict submission, review history with source context).
+- Communication systems: async email threads, urgent emails (out-of-turn activation), and 2-round multi-agent group meetings.
+- Social/governance dynamics: relationship scores, formal escalations, manager responses, PiP records, and CEO-approved firing workflow.
+- Energy/AP economy per round with per-tool costs, hard cap enforcement, optional coffee breaks, and between-round coffee chat.
+- Observability and control: live TUI telemetry, pause/resume, manual email injection, and JSONL event tracing.
+
+## Architecture (Code)
 
 ```mermaid
-flowchart TD
-    U[User Project Request] --> E[examples/company/main.go]
-    E --> C[Gemini LLM Client]
-    E --> R[Agent Registry<br/>8 company agents]
-    E --> W[Workspace Init<br/>shared/, src/, agent folders]
-    E --> S[Simulation Engine<br/>agent.Simulate]
+flowchart LR
+    USER[User Prompt] --> SIM[Simulation Engine]
 
-    S -->|activate each round| A[Agent Runtime<br/>Run/ReACT loop]
-    A -->|tool calls| T[Company Tools]
-    T --> TB[Task Board + Updates + ADRs]
-    T --> COMMS[Email + Meetings]
-    T --> HR[Relationships + Escalations + PiP + Firing]
-    T --> FS[Workspace Files<br/>PRD/Architecture/Code/Reviews/Diaries]
+    subgraph Runtime[Agent Runtime]
+        SIM --> SCHED[Round Scheduler]
+        SCHED --> RUN[ReACT Loop]
+        RUN --> PROMPT[Prompt Composer]
+        RUN --> LLM[LLM Predictor]
+        RUN --> HANDOFF[Handoff Orchestrator]
+        HANDOFF --> RUN
+    end
 
-    A -->|optional handoff| O[Orchestrator<br/>nested agent delegation]
-    O --> A
+    subgraph Tools[Tool Layer]
+        RUN --> TGW[Tool Gateway/Registry]
+        TGW --> FILES[File + Code Tools]
+        TGW --> COLLAB[Task/Updates/ADR Tools]
+        TGW --> COMMS[Email + Meeting Tools]
+        TGW --> GOV[Relationship/Escalation/PiP/Firing Tools]
+        TGW --> EXEC[Command Execution Tool]
+        TGW --> REVIEW[Structured Code Review Tools]
+        TGW --> ENERGY[Action-Point + Coffee Tools]
+    end
 
-    S --> TR[Trace JSONL]
-    S --> UI[TUI Dashboard]
-    S --> OUT[Final Simulation Result]
+    subgraph State[Shared State + Workspace]
+        TGW --> MEM[Shared In-Memory Logs/State]
+        TGW --> WS[Workspace Artifact Store]
+        MEM <--> WS
+    end
+
+    subgraph Observe[Observability + Control]
+        SIM --> HOOKS[Lifecycle Hooks]
+        HOOKS --> TRACE[JSONL Tracer]
+        HOOKS --> TUI[Live TUI Dashboard]
+        TUI --> CTRL[Pause/Resume + Email Injection]
+        CTRL --> SIM
+    end
 ```
