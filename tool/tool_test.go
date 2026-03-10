@@ -4,14 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/genai"
+	"github.com/dntatme/agents/llm"
 )
 
 func TestRegistryRegisterAndLookup(t *testing.T) {
 	r := NewRegistry()
 
 	ft := &FuncTool{
-		Decl: &genai.FunctionDeclaration{Name: "test_tool", Description: "A test tool."},
+		Decl: &llm.FunctionDeclaration{Name: "test_tool", Description: "A test tool."},
 		Fn: func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) {
 			return map[string]any{"ok": true}, nil
 		},
@@ -38,11 +38,11 @@ func TestRegistryRegisterAndLookup(t *testing.T) {
 func TestRegistryDefinitions(t *testing.T) {
 	r := NewRegistry()
 	r.Register(&FuncTool{
-		Decl: &genai.FunctionDeclaration{Name: "a"},
+		Decl: &llm.FunctionDeclaration{Name: "a"},
 		Fn:   func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) { return nil, nil },
 	})
 	r.Register(&FuncTool{
-		Decl: &genai.FunctionDeclaration{Name: "b"},
+		Decl: &llm.FunctionDeclaration{Name: "b"},
 		Fn:   func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) { return nil, nil },
 	})
 
@@ -58,7 +58,7 @@ func TestRegistryDefinitions(t *testing.T) {
 func TestRegistryDuplicatePanics(t *testing.T) {
 	r := NewRegistry()
 	ft := &FuncTool{
-		Decl: &genai.FunctionDeclaration{Name: "dup"},
+		Decl: &llm.FunctionDeclaration{Name: "dup"},
 		Fn:   func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) { return nil, nil },
 	}
 	r.Register(ft)
@@ -73,7 +73,7 @@ func TestRegistryDuplicatePanics(t *testing.T) {
 
 func TestFuncToolExecute(t *testing.T) {
 	ft := &FuncTool{
-		Decl: &genai.FunctionDeclaration{Name: "add"},
+		Decl: &llm.FunctionDeclaration{Name: "add"},
 		Fn: func(_ context.Context, args map[string]any, _ map[string]any) (map[string]any, error) {
 			a, _ := args["a"].(float64)
 			b, _ := args["b"].(float64)

@@ -3,10 +3,10 @@ package tool
 import (
 	"fmt"
 
-	"google.golang.org/genai"
+	"github.com/dntatme/agents/llm"
 )
 
-// Registry holds named tools and produces Gemini-compatible definitions.
+// Registry holds named tools and produces provider-agnostic definitions.
 type Registry struct {
 	tools map[string]Tool
 	order []string // preserves insertion order
@@ -32,9 +32,9 @@ func (r *Registry) Lookup(name string) Tool {
 	return r.tools[name]
 }
 
-// Definitions returns all function declarations for Gemini config.
-func (r *Registry) Definitions() []*genai.FunctionDeclaration {
-	defs := make([]*genai.FunctionDeclaration, 0, len(r.order))
+// Definitions returns all function declarations.
+func (r *Registry) Definitions() []*llm.FunctionDeclaration {
+	defs := make([]*llm.FunctionDeclaration, 0, len(r.order))
 	for _, name := range r.order {
 		defs = append(defs, r.tools[name].Definition())
 	}

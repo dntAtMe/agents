@@ -16,7 +16,9 @@
       "Bash(go list:*)",
       "Bash(grep:*)",
       "Bash(find:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)"
     ]
   }
 }

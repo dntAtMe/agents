@@ -20,7 +20,7 @@ const (
 // SimRuntime holds the runtime dependencies needed by tools (like urgent emails)
 // that need to invoke agents during a simulation. Stored in state as "sim_runtime".
 type SimRuntime struct {
-	Client    *llm.Client
+	Provider  llm.Provider
 	Registry  *Registry
 	Predictor Predictor
 	// RunAgent runs a target agent with a message and returns its final text.
@@ -79,7 +79,7 @@ type AgentRunRecord struct {
 // If an agent uses transfer_to_agent, a mini-orchestration runs for that subtree.
 func Simulate(
 	ctx context.Context,
-	client *llm.Client,
+	provider llm.Provider,
 	registry *Registry,
 	userPrompt string,
 	config *SimulationConfig,
@@ -116,12 +116,12 @@ func Simulate(
 		config.OnSimulationStart(userPrompt, maxRounds, agentOrder)
 	}
 
-	predictor := NewLLMPredictor(client)
+	predictor := NewLLMPredictor(provider)
 	var allRuns []AgentRunRecord
 
 	// Store SimRuntime in state so tools like urgent emails can invoke agents
 	state["sim_runtime"] = &SimRuntime{
-		Client:    client,
+		Provider:  provider,
 		Registry:  registry,
 		Predictor: predictor,
 	}
@@ -196,7 +196,7 @@ func Simulate(
 		bootstrapPatience, patienceTier(bootstrapPatience),
 	))
 
-	bootstrapResult, err := runAgentWithHandoffs(ctx, predictor, client, registry, ceoAgent, bootstrapConv, state)
+	bootstrapResult, err := runAgentWithHandoffs(ctx, predictor, provider, registry, ceoAgent, bootstrapConv, state)
 	if err != nil {
 		return nil, fmt.Errorf("bootstrap (ceo): %w", err)
 	}
@@ -265,7 +265,7 @@ func Simulate(
 			conv := conversation.New()
 			conv.AppendUserText(activationPrompt)
 
-			result, err := runAgentWithHandoffs(ctx, predictor, client, registry, ag, conv, state)
+			result, err := runAgentWithHandoffs(ctx, predictor, provider, registry, ag, conv, state)
 			if err != nil {
 				log.Printf("[Simulation] ERROR running %s in round %d: %v", agentName, round, err)
 				continue
@@ -355,7 +355,7 @@ func Simulate(
 func runAgentWithHandoffs(
 	ctx context.Context,
 	predictor Predictor,
-	client *llm.Client,
+	provider llm.Provider,
 	registry *Registry,
 	ag *Agent,
 	conv *conversation.Conversation,
@@ -370,7 +370,7 @@ func runAgentWithHandoffs(
 	if result.Handoff != nil {
 		log.Printf("[Simulation]   %s → handoff to %s", ag.Name, result.Handoff.TargetAgent)
 
-		orchResult, err := Orchestrate(ctx, client, registry, result.Handoff.TargetAgent,
+		orchResult, err := Orchestrate(ctx, provider, registry, result.Handoff.TargetAgent,
 			fmt.Sprintf("[System: Handoff from %s. Reason: %s]", ag.Name, result.Handoff.Reason),
 			&OrchestratorConfig{
 				MaxHandoffs:   5,

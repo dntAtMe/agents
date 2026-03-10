@@ -3,14 +3,14 @@ package tool
 import (
 	"context"
 
-	"google.golang.org/genai"
+	"github.com/dntatme/agents/llm"
 )
 
 // Builder provides a fluent API for constructing FuncTool instances.
 type Builder struct {
 	name        string
 	description string
-	properties  map[string]*genai.Schema
+	properties  map[string]*llm.Schema
 	required    []string
 	noParams    bool
 	handler     func(ctx context.Context, args map[string]any, state map[string]any) (map[string]any, error)
@@ -21,14 +21,14 @@ func Func(name, description string) *Builder {
 	return &Builder{
 		name:        name,
 		description: description,
-		properties:  make(map[string]*genai.Schema),
+		properties:  make(map[string]*llm.Schema),
 	}
 }
 
 // StringParam adds a string parameter.
 func (b *Builder) StringParam(name, desc string, required bool) *Builder {
-	b.properties[name] = &genai.Schema{
-		Type:        genai.TypeString,
+	b.properties[name] = &llm.Schema{
+		Type:        llm.TypeString,
 		Description: desc,
 	}
 	if required {
@@ -39,8 +39,8 @@ func (b *Builder) StringParam(name, desc string, required bool) *Builder {
 
 // StringEnumParam adds a string parameter constrained to specific values.
 func (b *Builder) StringEnumParam(name, desc string, values []string, required bool) *Builder {
-	b.properties[name] = &genai.Schema{
-		Type:        genai.TypeString,
+	b.properties[name] = &llm.Schema{
+		Type:        llm.TypeString,
 		Description: desc,
 		Enum:        values,
 	}
@@ -52,8 +52,8 @@ func (b *Builder) StringEnumParam(name, desc string, values []string, required b
 
 // NumberParam adds a number (float64) parameter.
 func (b *Builder) NumberParam(name, desc string, required bool) *Builder {
-	b.properties[name] = &genai.Schema{
-		Type:        genai.TypeNumber,
+	b.properties[name] = &llm.Schema{
+		Type:        llm.TypeNumber,
 		Description: desc,
 	}
 	if required {
@@ -64,8 +64,8 @@ func (b *Builder) NumberParam(name, desc string, required bool) *Builder {
 
 // IntParam adds an integer parameter.
 func (b *Builder) IntParam(name, desc string, required bool) *Builder {
-	b.properties[name] = &genai.Schema{
-		Type:        genai.TypeInteger,
+	b.properties[name] = &llm.Schema{
+		Type:        llm.TypeInteger,
 		Description: desc,
 	}
 	if required {
@@ -76,8 +76,8 @@ func (b *Builder) IntParam(name, desc string, required bool) *Builder {
 
 // BoolParam adds a boolean parameter.
 func (b *Builder) BoolParam(name, desc string, required bool) *Builder {
-	b.properties[name] = &genai.Schema{
-		Type:        genai.TypeBoolean,
+	b.properties[name] = &llm.Schema{
+		Type:        llm.TypeBoolean,
 		Description: desc,
 	}
 	if required {
@@ -104,19 +104,19 @@ func (b *Builder) Build() *FuncTool {
 		panic("tool.Builder: handler is required")
 	}
 
-	decl := &genai.FunctionDeclaration{
+	decl := &llm.FunctionDeclaration{
 		Name:        b.name,
 		Description: b.description,
 	}
 
 	if b.noParams {
-		decl.Parameters = &genai.Schema{
-			Type:       genai.TypeObject,
-			Properties: map[string]*genai.Schema{},
+		decl.Parameters = &llm.Schema{
+			Type:       llm.TypeObject,
+			Properties: map[string]*llm.Schema{},
 		}
 	} else if len(b.properties) > 0 {
-		decl.Parameters = &genai.Schema{
-			Type:       genai.TypeObject,
+		decl.Parameters = &llm.Schema{
+			Type:       llm.TypeObject,
 			Properties: b.properties,
 			Required:   b.required,
 		}

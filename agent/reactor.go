@@ -6,9 +6,8 @@ import (
 	"log"
 	"strings"
 
-	"google.golang.org/genai"
-
 	"github.com/dntatme/agents/conversation"
+	"github.com/dntatme/agents/llm"
 	"github.com/dntatme/agents/termination"
 	"github.com/dntatme/agents/tool"
 )
@@ -43,9 +42,9 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 	}
 
 	// Build base config.
-	config := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: ag.ResolveSystemPrompt()}},
+	config := &llm.GenerateConfig{
+		SystemInstruction: &llm.Content{
+			Parts: []*llm.Part{{Text: ag.ResolveSystemPrompt()}},
 		},
 		Temperature:     ag.Temperature,
 		MaxOutputTokens: ag.MaxOutputTokens,
@@ -53,7 +52,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 
 	// Attach tool definitions if any.
 	if ag.Tools != nil && ag.Tools.Len() > 0 {
-		config.Tools = []*genai.Tool{
+		config.Tools = []*llm.ToolSet{
 			{FunctionDeclarations: ag.Tools.Definitions()},
 		}
 	}
@@ -123,7 +122,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 		conv.AppendModelContent(modelContent)
 
 		// 7. Extract function calls.
-		var funcCalls []*genai.FunctionCall
+		var funcCalls []*llm.FunctionCall
 		for _, part := range modelContent.Parts {
 			if part.FunctionCall != nil {
 				funcCalls = append(funcCalls, part.FunctionCall)
@@ -132,7 +131,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 
 		hasToolCalls := len(funcCalls) > 0
 
-		// 5. Check termination policy.
+		// Check termination policy.
 		if ag.TerminationPolicy != nil {
 			tstate := termination.State{
 				Iteration:       iteration,
@@ -152,7 +151,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 			}
 		}
 
-		// 6. No function calls → return (safety net if DoneSignal not configured).
+		// No function calls → return (safety net if DoneSignal not configured).
 		if !hasToolCalls {
 			return &RunResult{
 				FinalText:       extractText(modelContent),
@@ -164,8 +163,8 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 			}, nil
 		}
 
-		// 8. Execute function calls.
-		var resultParts []*genai.Part
+		// Execute function calls.
+		var resultParts []*llm.Part
 		for _, fc := range funcCalls {
 			// Check for handoff (hooks not invoked for transfer).
 			if fc.Name == tool.TransferToolName {
@@ -202,8 +201,8 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 			t := ag.Tools.Lookup(fc.Name)
 			if t == nil {
 				log.Printf("WARNING: unknown tool %q called by model", fc.Name)
-				resultParts = append(resultParts, &genai.Part{
-					FunctionResponse: &genai.FunctionResponse{
+				resultParts = append(resultParts, &llm.Part{
+					FunctionResponse: &llm.FunctionResponse{
 						Name:     fc.Name,
 						Response: map[string]any{"error": fmt.Sprintf("unknown tool: %s", fc.Name)},
 					},
@@ -213,8 +212,8 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 
 			result, err := t.Execute(ctx, fc.Args, state)
 			if err != nil {
-				resultParts = append(resultParts, &genai.Part{
-					FunctionResponse: &genai.FunctionResponse{
+				resultParts = append(resultParts, &llm.Part{
+					FunctionResponse: &llm.FunctionResponse{
 						Name:     fc.Name,
 						Response: map[string]any{"error": err.Error()},
 					},
@@ -236,15 +235,15 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 				}
 			}
 
-			resultParts = append(resultParts, &genai.Part{
-				FunctionResponse: &genai.FunctionResponse{
+			resultParts = append(resultParts, &llm.Part{
+				FunctionResponse: &llm.FunctionResponse{
 					Name:     fc.Name,
 					Response: result,
 				},
 			})
 		}
 
-		// 9. AfterToolCalls hook.
+		// AfterToolCalls hook.
 		if ag.Hooks != nil && ag.Hooks.AfterToolCalls != nil {
 			hc := &HookContext{
 				Agent:        ag,
@@ -260,13 +259,13 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 			}
 		}
 
-		// 10. Append tool results to conversation.
+		// Append tool results to conversation.
 		conv.AppendToolResults(resultParts)
 	}
 }
 
 // extractText joins all text parts from a model response.
-func extractText(content *genai.Content) string {
+func extractText(content *llm.Content) string {
 	var parts []string
 	for _, p := range content.Parts {
 		if p.Text != "" {

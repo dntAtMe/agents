@@ -3,14 +3,14 @@ package termination
 import (
 	"context"
 
-	"google.golang.org/genai"
+	"github.com/dntatme/agents/llm"
 )
 
 // State holds the current iteration state for termination evaluation.
 type State struct {
 	Iteration       int
 	TotalTokensUsed int32
-	LastResponse    *genai.GenerateContentResponse
+	LastResponse    *llm.GenerateResponse
 	HasToolCalls    bool
 }
 

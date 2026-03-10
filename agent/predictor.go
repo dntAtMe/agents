@@ -3,35 +3,33 @@ package agent
 import (
 	"context"
 
-	"google.golang.org/genai"
-
 	"github.com/dntatme/agents/llm"
 )
 
 // PredictRequest holds the inputs for a prediction call.
 type PredictRequest struct {
-	Model   string
-	Messages []*genai.Content
-	Config  *genai.GenerateContentConfig
+	Model    string
+	Messages []*llm.Content
+	Config   *llm.GenerateConfig
 }
 
 // Predictor generates model content from messages and config.
 // Implement this interface to provide custom prediction logic (e.g., cache, mock, different provider).
 type Predictor interface {
-	Predict(ctx context.Context, req PredictRequest) (*genai.GenerateContentResponse, error)
+	Predict(ctx context.Context, req PredictRequest) (*llm.GenerateResponse, error)
 }
 
-// LLMPredictor wraps an LLM client to implement Predictor.
+// LLMPredictor wraps an LLM provider to implement Predictor.
 type LLMPredictor struct {
-	client *llm.Client
+	provider llm.Provider
 }
 
-// NewLLMPredictor creates a Predictor from an LLM client.
-func NewLLMPredictor(client *llm.Client) Predictor {
-	return &LLMPredictor{client: client}
+// NewLLMPredictor creates a Predictor from an LLM provider.
+func NewLLMPredictor(provider llm.Provider) Predictor {
+	return &LLMPredictor{provider: provider}
 }
 
-// Predict delegates to the underlying LLM client.
-func (p *LLMPredictor) Predict(ctx context.Context, req PredictRequest) (*genai.GenerateContentResponse, error) {
-	return p.client.GenerateContent(ctx, req.Model, req.Messages, req.Config)
+// Predict delegates to the underlying LLM provider.
+func (p *LLMPredictor) Predict(ctx context.Context, req PredictRequest) (*llm.GenerateResponse, error) {
+	return p.provider.GenerateContent(ctx, req.Model, req.Messages, req.Config)
 }

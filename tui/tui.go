@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/genai"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/dntatme/agents/agent"
+	"github.com/dntatme/agents/llm"
 )
 
 // Event wraps simulation events for the TUI message channel.
@@ -1206,7 +1205,7 @@ func formatResult(result map[string]any) string {
 	return truncate(string(b), 300)
 }
 
-func extractTextFromContent(content *genai.Content) string {
+func extractTextFromContent(content *llm.Content) string {
 	if content == nil {
 		return ""
 	}
@@ -1225,7 +1224,7 @@ func extractTextFromContent(content *genai.Content) string {
 func Hooks(ch chan Event) *agent.Hooks {
 	started := make(map[string]time.Time)
 	return &agent.Hooks{
-		AfterPredict: func(ctx context.Context, hc *agent.HookContext, content *genai.Content) error {
+		AfterPredict: func(ctx context.Context, hc *agent.HookContext, content *llm.Content) error {
 			text := extractTextFromContent(content)
 			if text != "" {
 				ch <- Event{
@@ -1240,7 +1239,7 @@ func Hooks(ch chan Event) *agent.Hooks {
 			}
 			return nil
 		},
-		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall) error {
 			started[fc.Name] = time.Now()
 			ch <- Event{
 				Type:  "tool_call_start",
@@ -1252,7 +1251,7 @@ func Hooks(ch chan Event) *agent.Hooks {
 			}
 			return nil
 		},
-		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall, result map[string]any) error {
 			var dur int64
 			if start, ok := started[fc.Name]; ok {
 				dur = time.Since(start).Milliseconds()

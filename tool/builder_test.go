@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"google.golang.org/genai"
+	"github.com/dntatme/agents/llm"
 )
 
 func TestBuilderBasic(t *testing.T) {
@@ -25,14 +25,14 @@ func TestBuilderBasic(t *testing.T) {
 	if def.Parameters == nil {
 		t.Fatal("expected parameters to be set")
 	}
-	if def.Parameters.Type != genai.TypeObject {
+	if def.Parameters.Type != llm.TypeObject {
 		t.Errorf("expected TypeObject, got %v", def.Parameters.Type)
 	}
 	nameProp := def.Parameters.Properties["name"]
 	if nameProp == nil {
 		t.Fatal("expected 'name' property")
 	}
-	if nameProp.Type != genai.TypeString {
+	if nameProp.Type != llm.TypeString {
 		t.Errorf("expected TypeString, got %v", nameProp.Type)
 	}
 	if len(def.Parameters.Required) != 1 || def.Parameters.Required[0] != "name" {
@@ -102,7 +102,7 @@ func TestBuilderNoParams(t *testing.T) {
 	if def.Parameters == nil {
 		t.Fatal("expected parameters to be set for NoParams")
 	}
-	if def.Parameters.Type != genai.TypeObject {
+	if def.Parameters.Type != llm.TypeObject {
 		t.Errorf("expected TypeObject, got %v", def.Parameters.Type)
 	}
 	if len(def.Parameters.Properties) != 0 {
@@ -122,16 +122,16 @@ func TestBuilderAllParamTypes(t *testing.T) {
 		Build()
 
 	def := ft.Definition()
-	if def.Parameters.Properties["s"].Type != genai.TypeString {
+	if def.Parameters.Properties["s"].Type != llm.TypeString {
 		t.Error("expected TypeString for 's'")
 	}
-	if def.Parameters.Properties["n"].Type != genai.TypeNumber {
+	if def.Parameters.Properties["n"].Type != llm.TypeNumber {
 		t.Error("expected TypeNumber for 'n'")
 	}
-	if def.Parameters.Properties["i"].Type != genai.TypeInteger {
+	if def.Parameters.Properties["i"].Type != llm.TypeInteger {
 		t.Error("expected TypeInteger for 'i'")
 	}
-	if def.Parameters.Properties["b"].Type != genai.TypeBoolean {
+	if def.Parameters.Properties["b"].Type != llm.TypeBoolean {
 		t.Error("expected TypeBoolean for 'b'")
 	}
 	if len(def.Parameters.Required) != 2 {

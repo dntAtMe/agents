@@ -11,13 +11,35 @@ import (
 	"github.com/dntatme/agents/llm"
 )
 
-func main() {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "GEMINI_API_KEY environment variable is required")
-		os.Exit(1)
+func createProvider(ctx context.Context) (llm.Provider, error) {
+	providerName := os.Getenv("LLM_PROVIDER")
+	if providerName == "" {
+		providerName = "gemini"
 	}
 
+	switch providerName {
+	case "gemini":
+		apiKey := os.Getenv("GEMINI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("set GEMINI_API_KEY to use the Gemini provider")
+		}
+		return llm.NewGemini(ctx, apiKey)
+	case "ollama":
+		baseURL := os.Getenv("OLLAMA_URL")
+		if baseURL == "" {
+			baseURL = "http://localhost:11434"
+		}
+		model := os.Getenv("OLLAMA_MODEL")
+		if model == "" {
+			model = "llama3.1"
+		}
+		return llm.NewOllama(baseURL, model), nil
+	default:
+		return nil, fmt.Errorf("unknown LLM_PROVIDER %q (use 'gemini' or 'ollama')", providerName)
+	}
+}
+
+func main() {
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, "Usage: agents <prompt>")
 		os.Exit(1)
@@ -26,9 +48,9 @@ func main() {
 
 	ctx := context.Background()
 
-	client, err := llm.New(ctx, apiKey)
+	provider, err := createProvider(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create client: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Provider error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -49,7 +71,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	result, err := agent.Orchestrate(ctx, client, registry, "triage", prompt, nil)
+	result, err := agent.Orchestrate(ctx, provider, registry, "triage", prompt, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

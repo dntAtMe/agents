@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/genai"
-
 	"github.com/dntatme/agents/agent"
+	"github.com/dntatme/agents/llm"
 )
 
 // Event represents a single trace event written as one JSONL line.
@@ -136,7 +135,7 @@ func (t *Tracer) AgentCompletion(round int, agentName string, result *agent.RunR
 // Hooks returns agent hooks that trace tool calls with timing information.
 func (t *Tracer) Hooks() *agent.Hooks {
 	return &agent.Hooks{
-		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall) error {
 			t.mu.Lock()
 			t.started[fc.Name] = time.Now()
 			t.mu.Unlock()
@@ -152,7 +151,7 @@ func (t *Tracer) Hooks() *agent.Hooks {
 			})
 			return nil
 		},
-		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall, result map[string]any) error {
 			var durationMs int64
 			t.mu.Lock()
 			if start, ok := t.started[fc.Name]; ok {

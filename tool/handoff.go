@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"google.golang.org/genai"
+	"github.com/dntatme/agents/llm"
 )
 
 const TransferToolName = "transfer_to_agent"
@@ -13,19 +13,19 @@ const TransferToolName = "transfer_to_agent"
 // agentNames provides the enum of valid target agents.
 func NewTransferTool(agentNames []string) Tool {
 	return &FuncTool{
-		Decl: &genai.FunctionDeclaration{
+		Decl: &llm.FunctionDeclaration{
 			Name:        TransferToolName,
 			Description: "Transfer the conversation to another specialist agent.",
-			Parameters: &genai.Schema{
-				Type: genai.TypeObject,
-				Properties: map[string]*genai.Schema{
+			Parameters: &llm.Schema{
+				Type: llm.TypeObject,
+				Properties: map[string]*llm.Schema{
 					"agent_name": {
-						Type:        genai.TypeString,
+						Type:        llm.TypeString,
 						Description: "The name of the agent to transfer to.",
 						Enum:        agentNames,
 					},
 					"reason": {
-						Type:        genai.TypeString,
+						Type:        llm.TypeString,
 						Description: "Why this transfer is needed.",
 					},
 				},

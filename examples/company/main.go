@@ -3,6 +3,7 @@
 // a personal diary entry.
 //
 // Run with: GEMINI_API_KEY=... go run ./examples/company "Build a simple todo REST API"
+// Or with Ollama: LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1 go run ./examples/company "Build a simple todo REST API"
 package main
 
 import (
@@ -14,7 +15,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"google.golang.org/genai"
 
 	"github.com/dntatme/agents/agent"
 	"github.com/dntatme/agents/capabilities/company"
@@ -27,7 +27,7 @@ import (
 // mergeHooks combines two hook sets so both are called on each event.
 func mergeHooks(a, b *agent.Hooks) *agent.Hooks {
 	return &agent.Hooks{
-		AfterPredict: func(ctx context.Context, hc *agent.HookContext, content *genai.Content) error {
+		AfterPredict: func(ctx context.Context, hc *agent.HookContext, content *llm.Content) error {
 			if a.AfterPredict != nil {
 				if err := a.AfterPredict(ctx, hc, content); err != nil {
 					return err
@@ -38,7 +38,7 @@ func mergeHooks(a, b *agent.Hooks) *agent.Hooks {
 			}
 			return nil
 		},
-		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall) error {
 			if a.BeforeToolCall != nil {
 				if err := a.BeforeToolCall(ctx, hc, fc); err != nil {
 					return err
@@ -49,7 +49,7 @@ func mergeHooks(a, b *agent.Hooks) *agent.Hooks {
 			}
 			return nil
 		},
-		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall, result map[string]any) error {
 			if a.AfterToolCall != nil {
 				if err := a.AfterToolCall(ctx, hc, fc, result); err != nil {
 					return err
@@ -63,13 +63,36 @@ func mergeHooks(a, b *agent.Hooks) *agent.Hooks {
 	}
 }
 
-func main() {
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "Set GEMINI_API_KEY to run this example")
-		os.Exit(1)
+// createProvider creates an LLM provider based on env vars.
+func createProvider(ctx context.Context) (llm.Provider, error) {
+	providerName := os.Getenv("LLM_PROVIDER")
+	if providerName == "" {
+		providerName = "gemini"
 	}
 
+	switch providerName {
+	case "gemini":
+		apiKey := os.Getenv("GEMINI_API_KEY")
+		if apiKey == "" {
+			return nil, fmt.Errorf("set GEMINI_API_KEY to use the Gemini provider")
+		}
+		return llm.NewGemini(ctx, apiKey)
+	case "ollama":
+		baseURL := os.Getenv("OLLAMA_URL")
+		if baseURL == "" {
+			baseURL = "http://localhost:11434"
+		}
+		model := os.Getenv("OLLAMA_MODEL")
+		if model == "" {
+			model = "llama3.1"
+		}
+		return llm.NewOllama(baseURL, model), nil
+	default:
+		return nil, fmt.Errorf("unknown LLM_PROVIDER %q (use 'gemini' or 'ollama')", providerName)
+	}
+}
+
+func main() {
 	userPrompt := "Build a simple todo REST API with CRUD operations"
 	if len(os.Args) > 1 {
 		userPrompt = strings.Join(os.Args[1:], " ")
@@ -77,9 +100,9 @@ func main() {
 
 	ctx := context.Background()
 
-	client, err := llm.New(ctx, apiKey)
+	provider, err := createProvider(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Client error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Provider error: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -645,7 +668,7 @@ func main() {
 	// Attach merged hooks (tracer + TUI + AP) to all agents
 	tracerHooks := tr.Hooks()
 	apHooks := &agent.Hooks{
-		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall) error {
+		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall) error {
 			// Enforce tool restrictions (coffee break, urgent email)
 			if allowed := company.GetAllowedTools(hc.State); allowed != nil {
 				if !allowed[fc.Name] {
@@ -678,7 +701,7 @@ func main() {
 			}
 			return nil
 		},
-		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *genai.FunctionCall, result map[string]any) error {
+		AfterToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall, result map[string]any) error {
 			agentName := company.GetCurrentAgent(hc.State)
 			remaining := apTracker.Remaining(agentName)
 
@@ -840,7 +863,7 @@ func main() {
 	var simErr error
 
 	go func() {
-		simResult, simErr = agent.Simulate(ctx, client, registry, userPrompt, simConfig)
+		simResult, simErr = agent.Simulate(ctx, provider, registry, userPrompt, simConfig)
 	}()
 
 	// Email injection goroutine — watches injectCh for composed emails.

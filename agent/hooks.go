@@ -3,9 +3,8 @@ package agent
 import (
 	"context"
 
-	"google.golang.org/genai"
-
 	"github.com/dntatme/agents/conversation"
+	"github.com/dntatme/agents/llm"
 )
 
 // HookContext is passed to all hooks with read/write access to the current run.
@@ -24,12 +23,12 @@ type Hooks struct {
 	// BeforePredict runs before each Predictor call. Can mutate req.Messages and req.Config in place.
 	BeforePredict func(ctx context.Context, hc *HookContext, req *PredictRequest) error
 	// AfterPredict runs after prediction, before termination check.
-	AfterPredict func(ctx context.Context, hc *HookContext, content *genai.Content) error
+	AfterPredict func(ctx context.Context, hc *HookContext, content *llm.Content) error
 	// BeforeToolCall runs before each tool execution.
-	BeforeToolCall func(ctx context.Context, hc *HookContext, fc *genai.FunctionCall) error
+	BeforeToolCall func(ctx context.Context, hc *HookContext, fc *llm.FunctionCall) error
 	// AfterToolCall runs after each tool execution.
-	AfterToolCall func(ctx context.Context, hc *HookContext, fc *genai.FunctionCall, result map[string]any) error
+	AfterToolCall func(ctx context.Context, hc *HookContext, fc *llm.FunctionCall, result map[string]any) error
 	// AfterToolCalls runs after all tools in the batch, before appending to conversation.
 	// Can return modified resultParts (e.g., to filter or transform).
-	AfterToolCalls func(ctx context.Context, hc *HookContext, resultParts []*genai.Part) ([]*genai.Part, error)
+	AfterToolCalls func(ctx context.Context, hc *HookContext, resultParts []*llm.Part) ([]*llm.Part, error)
 }

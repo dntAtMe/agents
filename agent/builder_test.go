@@ -4,16 +4,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dntatme/agents/llm"
 	"github.com/dntatme/agents/prompt"
 	"github.com/dntatme/agents/termination"
 	"github.com/dntatme/agents/tool"
-
-	"google.golang.org/genai"
 )
 
 func dummyTool(name string) tool.Tool {
 	return &tool.FuncTool{
-		Decl: &genai.FunctionDeclaration{Name: name, Description: "test"},
+		Decl: &llm.FunctionDeclaration{Name: name, Description: "test"},
 		Fn: func(_ context.Context, _ map[string]any, _ map[string]any) (map[string]any, error) {
 			return nil, nil
 		},

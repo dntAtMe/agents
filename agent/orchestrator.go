@@ -25,7 +25,7 @@ type stackFrame struct {
 // State is shared by reference — all agents see the same map.
 func Orchestrate(
 	ctx context.Context,
-	client *llm.Client,
+	provider llm.Provider,
 	registry *Registry,
 	startAgentName string,
 	userPrompt string,
@@ -57,7 +57,7 @@ func Orchestrate(
 	convs[startAgentName] = conv
 
 	handoffCount := 0
-	predictor := NewLLMPredictor(client)
+	predictor := NewLLMPredictor(provider)
 
 	for len(stack) > 0 {
 		current := stack[len(stack)-1]
