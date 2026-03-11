@@ -115,7 +115,47 @@ func toGenaiConfig(config *GenerateConfig) *genai.GenerateContentConfig {
 			gc.Tools[i] = toGenaiToolSet(ts)
 		}
 	}
+	if config.ToolConfig != nil {
+		gc.ToolConfig = toGenaiToolConfig(config.ToolConfig)
+	}
+	if config.ThinkingConfig != nil {
+		gc.ThinkingConfig = toGenaiThinkingConfig(config.ThinkingConfig)
+	}
 	return gc
+}
+
+func toGenaiThinkingConfig(tc *ThinkingConfig) *genai.ThinkingConfig {
+	if tc == nil {
+		return nil
+	}
+	return &genai.ThinkingConfig{
+		IncludeThoughts: tc.IncludeThoughts,
+		ThinkingBudget:  tc.ThinkingBudget,
+	}
+}
+
+func toGenaiToolConfig(tc *ToolConfig) *genai.ToolConfig {
+	if tc == nil {
+		return nil
+	}
+	return &genai.ToolConfig{
+		FunctionCallingConfig: &genai.FunctionCallingConfig{
+			Mode: toGenaiFunctionCallingMode(tc.Mode),
+		},
+	}
+}
+
+func toGenaiFunctionCallingMode(mode ToolMode) genai.FunctionCallingConfigMode {
+	switch mode {
+	case ToolModeAny:
+		return genai.FunctionCallingConfigModeAny
+	case ToolModeNone:
+		return genai.FunctionCallingConfigModeNone
+	case ToolModeAuto:
+		return genai.FunctionCallingConfigModeAuto
+	default:
+		return genai.FunctionCallingConfigModeAuto
+	}
 }
 
 func toGenaiToolSet(ts *ToolSet) *genai.Tool {

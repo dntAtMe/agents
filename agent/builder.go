@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/dntatme/agents/llm"
 	"github.com/dntatme/agents/prompt"
 	"github.com/dntatme/agents/termination"
 	"github.com/dntatme/agents/tool"
@@ -20,6 +21,8 @@ type Builder struct {
 	initialState      map[string]any
 	predictor         Predictor
 	hooks             *Hooks
+	toolMode          *llm.ToolMode
+	thinkingEnabled   bool
 }
 
 // New starts building an agent with the given name and sensible defaults.
@@ -105,6 +108,18 @@ func (b *Builder) Hooks(h *Hooks) *Builder {
 	return b
 }
 
+// ToolMode sets the tool calling mode (AUTO, ANY, NONE).
+func (b *Builder) ToolMode(mode llm.ToolMode) *Builder {
+	b.toolMode = &mode
+	return b
+}
+
+// ThinkingEnabled enables the LLM's thinking/reasoning mode (if supported).
+func (b *Builder) ThinkingEnabled(enabled bool) *Builder {
+	b.thinkingEnabled = enabled
+	return b
+}
+
 // Build constructs the Agent with a populated tool registry.
 func (b *Builder) Build() *Agent {
 	reg := tool.NewRegistry()
@@ -129,6 +144,8 @@ func (b *Builder) Build() *Agent {
 		InitialState:      b.initialState,
 		Predictor:         b.predictor,
 		Hooks:             b.hooks,
+		ToolMode:          b.toolMode,
+		ThinkingEnabled:   b.thinkingEnabled,
 	}
 
 	return ag

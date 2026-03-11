@@ -3,10 +3,17 @@
 //
 // Run with: GEMINI_API_KEY=... go run ./examples/company "Build a simple todo REST API"
 // Or with Ollama: LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1 go run ./examples/company "Build a simple todo REST API"
+//
+// Flags:
+//   --thinking     Enable thinking/reasoning mode for all agents (shows internal reasoning)
+//   --tool-only    Force all agents to use tool-only mode (function calls only, no text generation)
+//
+// Example: GEMINI_API_KEY=... go run ./examples/company --thinking --tool-only "Build a todo API"
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -92,9 +99,15 @@ func createProvider(ctx context.Context) (llm.Provider, error) {
 }
 
 func main() {
+	// Parse command-line flags
+	thinkingEnabled := flag.Bool("thinking", false, "Enable thinking/reasoning mode for all agents")
+	toolOnlyMode := flag.Bool("tool-only", false, "Force all agents to use tool-only mode (function calls only)")
+	flag.Parse()
+
+	// Get user prompt from remaining args
 	userPrompt := "Build a simple todo REST API with CRUD operations"
-	if len(os.Args) > 1 {
-		userPrompt = strings.Join(os.Args[1:], " ")
+	if len(flag.Args()) > 0 {
+		userPrompt = strings.Join(flag.Args(), " ")
 	}
 
 	ctx := context.Background()
@@ -245,7 +258,7 @@ func main() {
 		ceoPers.Name, ceoPers.WorkEthic, ceoPers.Motivation, ceoPers.CommunicationStyle, ceoPers.WorkCulture,
 	)}
 
-	registry.Register(agent.New("ceo").
+	ceoBuilder := agent.New("ceo").
 		PromptBuilder(prompt.NewBuilder().
 			Add(ceoIdentity).
 			Add(ceoPersonalityMixin).
@@ -289,10 +302,14 @@ func main() {
 			company.StartInterviewTool(),
 			company.HireDecisionTool(),
 		).
-		Build())
+		ThinkingEnabled(*thinkingEnabled)
+	if *toolOnlyMode {
+		ceoBuilder = ceoBuilder.ToolMode(llm.ToolModeAny)
+	}
+	registry.Register(ceoBuilder.Build())
 
 	// Shareholders (runs last each round, assesses company performance)
-	registry.Register(agent.New("shareholders").
+	shareholdersBuilder := agent.New("shareholders").
 		PromptBuilder(prompt.NewBuilder().
 			Add(prompt.Identity(company.RoleFor("shareholders"))).
 			Add(prompt.Mixin{Name: "MarketTemperament", Content: shareholderTemperament.Render()}).
@@ -306,7 +323,11 @@ func main() {
 			company.UpdateStockPriceTool(),
 			company.WriteDiaryTool(),
 		).
-		Build())
+		ThinkingEnabled(*thinkingEnabled)
+	if *toolOnlyMode {
+		shareholdersBuilder = shareholdersBuilder.ToolMode(llm.ToolModeAny)
+	}
+	registry.Register(shareholdersBuilder.Build())
 
 	// Initialize action point tracker
 	apTracker := company.NewActionPointTracker(15, 5, 3)
@@ -447,6 +468,15 @@ func main() {
 	// --- Agent builder factories (closures that capture shared state) ---
 	// Each factory builds and registers a permanent agent for the given position.
 
+	// Helper to apply global settings (thinking, tool mode) to any agent builder
+	applyGlobalSettings := func(b *agent.Builder) *agent.Builder {
+		b = b.ThinkingEnabled(*thinkingEnabled)
+		if *toolOnlyMode {
+			b = b.ToolMode(llm.ToolModeAny)
+		}
+		return b
+	}
+
 	buildAgentForPosition := func(position string, personality *company.Personality, candidateName string, reportingTo string) error {
 		// Set org hierarchy
 		orgHierarchy.SetManager(position, reportingTo)
@@ -462,7 +492,7 @@ func main() {
 
 		switch position {
 		case "product-manager":
-			ag = agent.New(position).
+			ag = applyGlobalSettings(agent.New(position).
 				PromptBuilder(prompt.NewBuilder().
 					Add(identityMixin).
 					Add(personalityMixin).
@@ -484,11 +514,11 @@ func main() {
 					viewRelationships, updateRelationship,
 					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
 					requestFire, getCoffee,
-				).
+				)).
 				Build()
 
 		case "cto":
-			ag = agent.New(position).
+			ag = applyGlobalSettings(agent.New(position).
 				PromptBuilder(prompt.NewBuilder().
 					Add(identityMixin).
 					Add(personalityMixin).
@@ -521,11 +551,11 @@ func main() {
 					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
 					requestFire, getCoffee,
 					company.CheckStockPriceTool(),
-				).
+				)).
 				Build()
 
 		case "architect":
-			ag = agent.New(position).
+			ag = applyGlobalSettings(agent.New(position).
 				PromptBuilder(prompt.NewBuilder().
 					Add(identityMixin).
 					Add(personalityMixin).
@@ -557,11 +587,11 @@ func main() {
 					viewRelationships, updateRelationship,
 					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
 					requestFire, getCoffee,
-				).
+				)).
 				Build()
 
 		case "project-manager":
-			ag = agent.New(position).
+			ag = applyGlobalSettings(agent.New(position).
 				PromptBuilder(prompt.NewBuilder().
 					Add(identityMixin).
 					Add(personalityMixin).
@@ -587,11 +617,11 @@ func main() {
 					viewRelationships, updateRelationship,
 					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
 					requestFire, getCoffee,
-				).
+				)).
 				Build()
 
 		case "backend-dev", "frontend-dev", "devops":
-			ag = agent.New(position).
+			ag = applyGlobalSettings(agent.New(position).
 				PromptBuilder(prompt.NewBuilder().
 					Add(identityMixin).
 					Add(personalityMixin).
@@ -621,7 +651,7 @@ func main() {
 					sendEmail, checkInbox, replyEmail,
 					viewRelationships, updateRelationship,
 					fileEscalation, getCoffee,
-				).
+				)).
 				Build()
 
 		default:
@@ -679,8 +709,8 @@ func main() {
 	// Store closures in state for the hiring tools to use
 	initialState["register_temp_agent"] = func(name, systemPrompt string) {
 		// Create a minimal agent with no tools (just talks)
-		ag := agent.New(name).
-			SystemPrompt(systemPrompt).
+		ag := applyGlobalSettings(agent.New(name).
+			SystemPrompt(systemPrompt)).
 			Build()
 		ag.Hooks = merged
 		registry.RegisterOrReplace(ag)

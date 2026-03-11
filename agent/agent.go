@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/dntatme/agents/llm"
 	"github.com/dntatme/agents/prompt"
 	"github.com/dntatme/agents/termination"
 	"github.com/dntatme/agents/tool"
@@ -21,6 +22,11 @@ type Agent struct {
 	Predictor Predictor
 	// Hooks provide lifecycle callbacks for customization. Nil = no hooks.
 	Hooks *Hooks
+	// ToolMode specifies how the agent should use tools (AUTO, ANY, NONE).
+	// ANY forces function call-only mode (no text generation).
+	ToolMode *llm.ToolMode
+	// ThinkingEnabled enables the LLM's thinking/reasoning mode (if supported).
+	ThinkingEnabled bool
 }
 
 // ResolveSystemPrompt returns the effective system prompt.

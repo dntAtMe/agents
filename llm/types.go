@@ -59,12 +59,39 @@ type Content struct {
 	Parts []*Part
 }
 
+// ToolMode specifies how the model should use tools.
+type ToolMode string
+
+const (
+	// ToolModeAuto lets the model decide whether to call tools or generate text.
+	ToolModeAuto ToolMode = "AUTO"
+	// ToolModeAny forces the model to call at least one tool (function call-only mode).
+	ToolModeAny ToolMode = "ANY"
+	// ToolModeNone prevents the model from calling any tools.
+	ToolModeNone ToolMode = "NONE"
+)
+
+// ToolConfig configures tool calling behavior.
+type ToolConfig struct {
+	Mode ToolMode
+}
+
+// ThinkingConfig configures thinking/reasoning features.
+type ThinkingConfig struct {
+	// IncludeThoughts indicates whether to include thoughts in the response.
+	IncludeThoughts bool
+	// ThinkingBudget is the optional thinking budget in tokens.
+	ThinkingBudget *int32
+}
+
 // GenerateConfig holds generation parameters.
 type GenerateConfig struct {
 	SystemInstruction *Content
 	Temperature       *float32
 	MaxOutputTokens   int32
 	Tools             []*ToolSet
+	ToolConfig        *ToolConfig
+	ThinkingConfig    *ThinkingConfig
 }
 
 // Candidate is one generation result.

@@ -18,7 +18,10 @@
       "Bash(find:*)",
       "Bash(wc:*)",
       "Bash(git stash:*)",
-      "Bash(git stash pop:*)"
+      "Bash(git stash pop:*)",
+      "Bash(go doc:*)",
+      "Bash(go run -c \"package main; import \"\"google.golang.org/genai\"\"; import \"\"fmt\"\"; func main\\(\\) { fmt.Println\\(genai.FunctionCallingConfigModeAuto\\) }\")",
+      "Bash(go run:*)"
     ]
   }
 }

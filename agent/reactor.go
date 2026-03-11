@@ -57,6 +57,20 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 		}
 	}
 
+	// Attach tool config if specified.
+	if ag.ToolMode != nil {
+		config.ToolConfig = &llm.ToolConfig{
+			Mode: *ag.ToolMode,
+		}
+	}
+
+	// Attach thinking config if enabled.
+	if ag.ThinkingEnabled {
+		config.ThinkingConfig = &llm.ThinkingConfig{
+			IncludeThoughts: true,
+		}
+	}
+
 	for {
 		iteration++
 
