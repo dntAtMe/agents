@@ -146,6 +146,7 @@ func RandomCandidatePersonality(position string) *Personality {
 	p.Role = RoleFor(position)
 	p.Skillset, p.Specializations = RollSkills(position)
 	p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
+	p.Background = GenerateBackground(position)
 	return &p
 }
 

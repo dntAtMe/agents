@@ -61,7 +61,6 @@ func StartInterviewTool() tool.Tool {
 			// Generate candidate
 			candidateName := GenerateCandidateName()
 			personality := RandomCandidatePersonality(position)
-			background := GenerateCandidateBackground(candidateName, position)
 
 			candidate := CandidateProfile{
 				Name:        candidateName,
@@ -85,7 +84,7 @@ func StartInterviewTool() tool.Tool {
 			// Build candidate system prompt — personality shapes behavior but is NOT revealed
 			candidatePrompt := fmt.Sprintf(
 				"You are %s, a job candidate interviewing for the %s position.\n\n"+
-					"Background: %s\n\n"+
+					"**Background:** %s\n\n"+
 					"**Your personality (this shapes how you behave, but do NOT explicitly state these traits):**\n"+
 					"- Personality type: %s\n"+
 					"- Motivation: %s\n"+
@@ -97,6 +96,7 @@ func StartInterviewTool() tool.Tool {
 					"INTERVIEW RULES:\n"+
 					"- Answer the interviewer's questions naturally and conversationally.\n"+
 					"- Let your personality come through in HOW you answer, not by describing your traits.\n"+
+					"- Draw on your background and professional experience when answering questions.\n"+
 					"- Reference your skills and specializations naturally when relevant.\n"+
 					"- When asked about topics in your specializations, answer with confidence and depth.\n"+
 					"- When asked about topics outside your specializations, let your personality determine how you handle the gap.\n"+
@@ -104,7 +104,7 @@ func StartInterviewTool() tool.Tool {
 					"- Keep responses concise (2-4 paragraphs max).\n"+
 					"- Do NOT reveal your personality type or work ethic label.\n"+
 					"- Do NOT use any tools — just respond conversationally.",
-				candidateName, position, background,
+				candidateName, position, personality.Background,
 				personality.Name, personality.Motivation,
 				personality.CommunicationStyle, personality.WorkCulture,
 				personality.Skillset, strings.Join(personality.Specializations, ", "),
@@ -141,12 +141,12 @@ func StartInterviewTool() tool.Tool {
 				ceoPrompt := fmt.Sprintf(
 					"[Interview %s — Turn %d/3]\n"+
 						"You are interviewing %s for the %s position.\n"+
-						"Background: %s\n\n"+
+						"Their background: %s\n\n"+
 						"Transcript so far:\n%s\n\n"+
 						"Ask your next interview question. Be thorough — probe for technical skills, "+
 						"work ethic, collaboration style, and problem-solving ability. "+
 						"Keep your question concise (1-2 paragraphs).",
-					interviewID, turn, candidateName, position, background, transcriptText.String(),
+					interviewID, turn, candidateName, position, personality.Background, transcriptText.String(),
 				)
 
 				state[KeyCurrentAgent] = caller
@@ -214,7 +214,7 @@ func StartInterviewTool() tool.Tool {
 				"interview_id": interviewID,
 				"candidate":    candidateName,
 				"position":     position,
-				"background":   background,
+				"background":   personality.Background,
 				"transcript":   transcriptText.String(),
 				"status":       "complete",
 				"next_step":    fmt.Sprintf("Use hire_decision with interview_id=%q to hire or pass on this candidate.", interviewID),

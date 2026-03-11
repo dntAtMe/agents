@@ -26,6 +26,7 @@ type Personality struct {
 	Skillset           string    // e.g. "backend", "leadership"
 	Specializations    []string  // e.g. ["microservices", "kubernetes"]
 	SkillBehavior      string    // how they behave in vs. outside their expertise
+	Background         string    // brief professional background
 }
 
 // Description renders the personality into a prompt-ready markdown string.
@@ -33,6 +34,9 @@ func (p *Personality) Description() string {
 	s := fmt.Sprintf("## Personality: %s\n\n**Work ethic:** %s\n", p.Name, p.WorkEthic)
 	if p.Role != "" {
 		s += fmt.Sprintf("\n### Role\n%s\n", p.Role)
+	}
+	if p.Background != "" {
+		s += fmt.Sprintf("\n### Background\n%s\n", p.Background)
 	}
 	if p.Motivation != "" {
 		s += fmt.Sprintf("\n### Motivation\n%s\n", p.Motivation)
@@ -269,6 +273,113 @@ func SkillBehaviorFor(ethic WorkEthic) string {
 	}
 }
 
+// --- Background generation pools ---
+
+var technicalPreviousRoles = []string{
+	"senior software engineer",
+	"staff engineer",
+	"tech lead",
+	"platform engineer",
+	"site reliability engineer",
+	"principal developer",
+	"senior systems engineer",
+	"lead application developer",
+}
+
+var managementPreviousRoles = []string{
+	"director of product",
+	"VP of operations",
+	"senior program manager",
+	"head of strategy",
+	"management consultant",
+	"business unit lead",
+	"head of delivery",
+	"senior product lead",
+}
+
+var ctoPreviousRoles = []string{
+	"VP of engineering",
+	"director of engineering",
+	"principal architect",
+	"head of platform",
+	"engineering director",
+	"senior technical director",
+}
+
+var previousCompanies = []string{
+	"a Series B startup",
+	"a Fortune 500 company",
+	"a mid-size SaaS company",
+	"a consulting firm",
+	"a Big Tech company",
+	"a fintech unicorn",
+	"an open-source foundation",
+	"a government contractor",
+	"a healthcare tech company",
+	"a bootstrapped startup",
+	"a cybersecurity firm",
+	"an e-commerce platform",
+}
+
+var technicalAchievements = []string{
+	"Led migration from monolith to microservices for a platform serving 2M users.",
+	"Built a real-time data pipeline processing 10M events per day.",
+	"Designed and shipped an API gateway used by 500+ internal services.",
+	"Reduced infrastructure costs by 40% through containerization and autoscaling.",
+	"Architected a zero-downtime deployment system across 3 regions.",
+	"Rewrote the core authentication service, cutting login latency by 70%.",
+	"Built the CI/CD pipeline from scratch, reducing deploy times from hours to minutes.",
+	"Led a team that shipped a greenfield product from zero to production in 4 months.",
+	"Designed the event-driven architecture that powers the company's real-time features.",
+	"Implemented end-to-end observability, reducing incident response time by 60%.",
+}
+
+var managementAchievements = []string{
+	"Grew the product team from 3 to 25 people across two years.",
+	"Launched a product line that reached $10M ARR in 18 months.",
+	"Led a company-wide agile transformation across 8 teams.",
+	"Managed a cross-functional initiative that cut time-to-market by 35%.",
+	"Built and scaled a remote-first engineering organization across 4 time zones.",
+	"Negotiated and delivered a strategic partnership that doubled the customer base.",
+	"Drove OKR adoption that improved quarterly goal completion from 40% to 85%.",
+	"Turned around a struggling product team, shipping 3 major releases in one quarter.",
+	"Established the company's first formal hiring process, reducing mis-hires by half.",
+	"Coordinated a product pivot under tight deadlines that saved a failing product line.",
+}
+
+// GenerateBackground creates a brief professional background for the given position.
+func GenerateBackground(position string) string {
+	years := 3 + rand.Intn(13) // 3-15 years
+
+	var roles []string
+	var achievements []string
+
+	switch {
+	case position == "cto":
+		roles = ctoPreviousRoles
+		// CTO draws from both achievement pools
+		achievements = make([]string, 0, len(technicalAchievements)+len(managementAchievements))
+		achievements = append(achievements, technicalAchievements...)
+		achievements = append(achievements, managementAchievements...)
+	case technicalRoles[position]:
+		roles = technicalPreviousRoles
+		achievements = technicalAchievements
+	case managementRoles[position]:
+		roles = managementPreviousRoles
+		achievements = managementAchievements
+	default:
+		roles = technicalPreviousRoles
+		achievements = technicalAchievements
+	}
+
+	role := roles[rand.Intn(len(roles))]
+	company := previousCompanies[rand.Intn(len(previousCompanies))]
+	achievement := achievements[rand.Intn(len(achievements))]
+
+	return fmt.Sprintf("%d years of experience. Previously %s at %s. %s",
+		years, role, company, achievement)
+}
+
 // agentRoles maps agent names to their role/responsibility descriptions.
 var agentRoles = map[string]string{
 	"ceo": "You are the CEO of a software company. You set strategic direction, " +
@@ -469,6 +580,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 			p.Role = agentRoles[name]
 			p.Skillset, p.Specializations = RollSkills(name)
 			p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
+			p.Background = GenerateBackground(name)
 			assignments[name] = &p
 			hwIdx++
 		} else {
@@ -485,6 +597,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 			p.Role = agentRoles[name]
 			p.Skillset, p.Specializations = RollSkills(name)
 			p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
+			p.Background = GenerateBackground(name)
 			assignments[name] = &p
 			slIdx++
 		} else {
@@ -492,6 +605,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 			p.Role = agentRoles[name]
 			p.Skillset, p.Specializations = RollSkills(name)
 			p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
+			p.Background = GenerateBackground(name)
 			assignments[name] = &p
 			hwIdx++
 		}
@@ -505,6 +619,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 		p.Role = agentRoles[target]
 		p.Skillset, p.Specializations = RollSkills(target)
 		p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
+		p.Background = GenerateBackground(target)
 		assignments[target] = &p
 	}
 
