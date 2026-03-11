@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -82,6 +83,7 @@ type oaiChatRequest struct {
 	Model       string       `json:"model"`
 	Messages    []oaiMessage `json:"messages"`
 	Tools       []oaiTool    `json:"tools,omitempty"`
+	ToolChoice  any          `json:"tool_choice,omitempty"`
 	Temperature *float32     `json:"temperature,omitempty"`
 	MaxTokens   int32        `json:"max_tokens,omitempty"`
 }
@@ -178,6 +180,13 @@ func (o *OllamaProvider) buildRequest(model string, messages []*Content, config 
 
 		req.Temperature = config.Temperature
 		req.MaxTokens = config.MaxOutputTokens
+
+		if config.ToolConfig != nil && len(req.Tools) > 0 {
+			req.ToolChoice = toolModeToOAI(config.ToolConfig.Mode)
+		}
+		if config.ThinkingConfig != nil {
+			log.Println("ollama: ThinkingConfig is not supported by Ollama and will be ignored")
+		}
 	}
 
 	return req
@@ -328,6 +337,19 @@ func schemaToOAI(s *Schema) *oaiSchema {
 		}
 	}
 	return os
+}
+
+func toolModeToOAI(mode ToolMode) string {
+	switch mode {
+	case ToolModeAny:
+		return "required"
+	case ToolModeNone:
+		return "none"
+	case ToolModeAuto:
+		return "auto"
+	default:
+		return "auto"
+	}
 }
 
 func typeToString(t Type) string {
