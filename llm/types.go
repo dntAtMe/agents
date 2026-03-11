@@ -101,7 +101,11 @@ type Candidate struct {
 
 // UsageMetadata tracks token usage.
 type UsageMetadata struct {
-	TotalTokenCount int32
+	PromptTokenCount        int32
+	CachedContentTokenCount int32
+	ResponseTokenCount      int32
+	ThoughtsTokenCount      int32
+	TotalTokenCount         int32
 }
 
 // GenerateResponse holds the model's response.

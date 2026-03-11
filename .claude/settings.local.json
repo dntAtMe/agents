@@ -27,7 +27,9 @@
       "WebFetch(domain:discuss.ai.google.dev)",
       "WebFetch(domain:docs.cloud.google.com)",
       "WebFetch(domain:geminicli.com)",
-      "WebFetch(domain:www.digitalocean.com)"
+      "WebFetch(domain:www.digitalocean.com)",
+      "WebFetch(domain:www.prompthub.us)",
+      "WebFetch(domain:openrouter.ai)"
     ]
   }
 }

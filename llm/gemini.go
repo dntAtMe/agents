@@ -245,7 +245,11 @@ func fromGenaiResponse(resp *genai.GenerateContentResponse) *GenerateResponse {
 	r := &GenerateResponse{}
 	if resp.UsageMetadata != nil {
 		r.UsageMetadata = &UsageMetadata{
-			TotalTokenCount: resp.UsageMetadata.TotalTokenCount,
+			PromptTokenCount:        resp.UsageMetadata.PromptTokenCount,
+			CachedContentTokenCount: resp.UsageMetadata.CachedContentTokenCount,
+			ResponseTokenCount:      resp.UsageMetadata.CandidatesTokenCount,
+			ThoughtsTokenCount:      resp.UsageMetadata.ThoughtsTokenCount,
+			TotalTokenCount:         resp.UsageMetadata.TotalTokenCount,
 		}
 	}
 	if len(resp.Candidates) > 0 {

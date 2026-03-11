@@ -60,12 +60,13 @@ type SimulationResult struct {
 
 // AgentRunRecord captures a single agent activation within the simulation.
 type AgentRunRecord struct {
-	Round    int
-	Agent    string
-	Output   string
-	Idle     bool
-	Tokens   int32
-	Handoffs []string // agents that were called via handoff during this turn
+	Round        int
+	Agent        string
+	Output       string
+	Idle         bool
+	Tokens       int32
+	CachedTokens int32
+	Handoffs     []string // agents that were called via handoff during this turn
 }
 
 // Simulate runs a round-based multi-agent simulation loop.
@@ -249,10 +250,11 @@ func Simulate(
 	agentLastRound["ceo"] = 0
 
 	allRuns = append(allRuns, AgentRunRecord{
-		Round:  0,
-		Agent:  "ceo",
-		Output: bootstrapResult.FinalText,
-		Tokens: bootstrapResult.TotalTokens,
+		Round:        0,
+		Agent:        "ceo",
+		Output:       bootstrapResult.FinalText,
+		Tokens:       bootstrapResult.TotalTokens,
+		CachedTokens: bootstrapResult.CachedTokens,
 	})
 
 	log.Printf("[Simulation] CEO bootstrap complete: %s", truncate(bootstrapResult.FinalText, 100))
@@ -334,11 +336,12 @@ func Simulate(
 			}
 
 			allRuns = append(allRuns, AgentRunRecord{
-				Round:  round,
-				Agent:  agentName,
-				Output: result.FinalText,
-				Idle:   idle,
-				Tokens: result.TotalTokens,
+				Round:        round,
+				Agent:        agentName,
+				Output:       result.FinalText,
+				Idle:         idle,
+				Tokens:       result.TotalTokens,
+				CachedTokens: result.CachedTokens,
 			})
 
 			if idle {

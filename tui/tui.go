@@ -35,14 +35,15 @@ type SimCallbacks struct {
 }
 
 type agentInfo struct {
-	Status     string // "pending", "active", "idle", "done"
-	Tokens     int32
-	Iterations int
-	ToolCount  int
-	LastTool   string
-	AP         int // remaining action points
-	MaxAP      int // max AP this round (for bar rendering)
-	GotMail    bool // received email this round
+	Status       string // "pending", "active", "idle", "done"
+	Tokens       int32
+	CachedTokens int32
+	Iterations   int
+	ToolCount    int
+	LastTool     string
+	AP           int // remaining action points
+	MaxAP        int // max AP this round (for bar rendering)
+	GotMail      bool // received email this round
 }
 
 type toolCallInfo struct {
@@ -353,6 +354,9 @@ func (m *Model) handleEvent(ev Event) {
 		if tok, ok := ev.Data["tokens"].(int32); ok {
 			info.Tokens = tok
 		}
+		if ct, ok := ev.Data["cached_tokens"].(int32); ok {
+			info.CachedTokens = ct
+		}
 		if iter, ok := ev.Data["iterations"].(int); ok {
 			info.Iterations = iter
 		}
@@ -369,6 +373,10 @@ func (m *Model) handleEvent(ev Event) {
 		tokStr := ""
 		if info.Tokens > 0 {
 			tokStr = fmt.Sprintf(", %dk tok", info.Tokens/1000)
+			if info.CachedTokens > 0 {
+				pct := int(float64(info.CachedTokens) / float64(info.Tokens) * 100)
+				tokStr += fmt.Sprintf(" %d%% cached", pct)
+			}
 		}
 		m.appendLog(fmt.Sprintf("[%s] %s completed (%s%s)", ts, ev.Agent, status, tokStr))
 		m.appendDetail(ev.Agent, detailEntry{
@@ -916,6 +924,10 @@ func (m *Model) renderAgents() string {
 			} else {
 				label += fmt.Sprintf("  %d tok", info.Tokens)
 			}
+			if info.CachedTokens > 0 {
+				pct := int(float64(info.CachedTokens) / float64(info.Tokens) * 100)
+				label += fmt.Sprintf(" (%d%% cached)", pct)
+			}
 		}
 		if info.ToolCount > 0 {
 			label += fmt.Sprintf("  [%d tools]", info.ToolCount)
@@ -1051,6 +1063,10 @@ func (m *Model) renderDetail() string {
 			tokStr = fmt.Sprintf("  tokens %.1fk", float64(info.Tokens)/1000)
 		} else {
 			tokStr = fmt.Sprintf("  tokens %d", info.Tokens)
+		}
+		if info.CachedTokens > 0 {
+			pct := int(float64(info.CachedTokens) / float64(info.Tokens) * 100)
+			tokStr += fmt.Sprintf(" (%d%% cached)", pct)
 		}
 	}
 	iterStr := ""
@@ -1427,6 +1443,7 @@ func Callbacks(ch chan Event) SimCallbacks {
 			}
 			if result != nil {
 				data["tokens"] = result.TotalTokens
+				data["cached_tokens"] = result.CachedTokens
 				data["iterations"] = result.Iterations
 			}
 			ch <- Event{

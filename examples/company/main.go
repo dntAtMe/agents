@@ -885,14 +885,20 @@ func main() {
 		fmt.Printf("Total agent runs: %d\n", len(simResult.AgentRuns))
 
 		var totalTokens int32
+		var cachedTokens int32
 		idleCount := 0
 		for _, run := range simResult.AgentRuns {
 			totalTokens += run.Tokens
+			cachedTokens += run.CachedTokens
 			if run.Idle {
 				idleCount++
 			}
 		}
 		fmt.Printf("Total tokens: %d\n", totalTokens)
+		if cachedTokens > 0 {
+			fmt.Printf("Cached tokens: %d (%.0f%% cache hit rate)\n",
+				cachedTokens, float64(cachedTokens)/float64(totalTokens)*100)
+		}
 		fmt.Printf("Idle responses: %d\n", idleCount)
 
 		fmt.Printf("\nCheck %s for generated artifacts:\n", workspaceRoot)

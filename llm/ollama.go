@@ -136,7 +136,8 @@ type oaiChoice struct {
 }
 
 type oaiUsage struct {
-	TotalTokens int32 `json:"total_tokens"`
+	PromptTokens int32 `json:"prompt_tokens"`
+	TotalTokens  int32 `json:"total_tokens"`
 }
 
 // --- Build request ---
@@ -264,7 +265,9 @@ func (o *OllamaProvider) parseResponse(resp oaiChatResponse) *GenerateResponse {
 
 	if resp.Usage != nil {
 		result.UsageMetadata = &UsageMetadata{
-			TotalTokenCount: resp.Usage.TotalTokens,
+			PromptTokenCount:   resp.Usage.PromptTokens,
+			ResponseTokenCount: resp.Usage.TotalTokens - resp.Usage.PromptTokens,
+			TotalTokenCount:    resp.Usage.TotalTokens,
 		}
 	}
 

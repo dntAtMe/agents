@@ -122,6 +122,7 @@ func (t *Tracer) AgentCompletion(round int, agentName string, result *agent.RunR
 	if result != nil {
 		data["output_preview"] = truncateStr(result.FinalText, 150)
 		data["tokens"] = result.TotalTokens
+		data["cached_tokens"] = result.CachedTokens
 		data["iterations"] = result.Iterations
 	}
 	t.emit(Event{

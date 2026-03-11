@@ -24,6 +24,7 @@ type RunResult struct {
 	Handoff         *HandoffResult
 	Conversation    *conversation.Conversation
 	TotalTokens     int32
+	CachedTokens    int32
 	Iterations      int
 	TerminateReason string
 	State           map[string]any
@@ -33,6 +34,7 @@ type RunResult struct {
 // predictor is the default predictor; if ag.Predictor is set, it overrides.
 func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation.Conversation, state map[string]any) (*RunResult, error) {
 	var totalTokens int32
+	var cachedTokens int32
 	iteration := 0
 
 	// Select predictor: agent's override or default.
@@ -104,6 +106,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 		// 4. Track token usage.
 		if resp.UsageMetadata != nil {
 			totalTokens += resp.UsageMetadata.TotalTokenCount
+			cachedTokens += resp.UsageMetadata.CachedContentTokenCount
 		}
 
 		// 5. Append model response.
@@ -112,6 +115,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 				FinalText:       "",
 				Conversation:    conv,
 				TotalTokens:     totalTokens,
+				CachedTokens:    cachedTokens,
 				Iterations:      iteration,
 				TerminateReason: "no candidates in response",
 				State:           state,
@@ -158,6 +162,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 					FinalText:       extractText(modelContent),
 					Conversation:    conv,
 					TotalTokens:     totalTokens,
+					CachedTokens:    cachedTokens,
 					Iterations:      iteration,
 					TerminateReason: reason,
 					State:           state,
@@ -171,6 +176,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 				FinalText:       extractText(modelContent),
 				Conversation:    conv,
 				TotalTokens:     totalTokens,
+				CachedTokens:    cachedTokens,
 				Iterations:      iteration,
 				TerminateReason: "no tool calls",
 				State:           state,
@@ -191,6 +197,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 					},
 					Conversation:    conv,
 					TotalTokens:     totalTokens,
+					CachedTokens:    cachedTokens,
 					Iterations:      iteration,
 					TerminateReason: "handoff",
 					State:           state,
@@ -213,6 +220,7 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 					FinalText:       finalText,
 					Conversation:    conv,
 					TotalTokens:     totalTokens,
+					CachedTokens:    cachedTokens,
 					Iterations:      iteration,
 					TerminateReason: "end_turn",
 					State:           state,
@@ -229,7 +237,13 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 					TotalTokens:  totalTokens,
 				}
 				if err := ag.Hooks.BeforeToolCall(ctx, hc, fc); err != nil {
-					return nil, fmt.Errorf("BeforeToolCall %q (iter %d): %w", fc.Name, iteration, err)
+					resultParts = append(resultParts, &llm.Part{
+						FunctionResponse: &llm.FunctionResponse{
+							Name:     fc.Name,
+							Response: map[string]any{"error": err.Error()},
+						},
+					})
+					continue
 				}
 			}
 
