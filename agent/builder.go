@@ -23,6 +23,7 @@ type Builder struct {
 	hooks             *Hooks
 	toolMode          *llm.ToolMode
 	thinkingEnabled   bool
+	endTurn           bool
 }
 
 // New starts building an agent with the given name and sensible defaults.
@@ -120,6 +121,13 @@ func (b *Builder) ThinkingEnabled(enabled bool) *Builder {
 	return b
 }
 
+// EndTurn registers the end_turn tool so the agent can signal turn completion.
+// Used with ToolModeAny to provide a clean termination path.
+func (b *Builder) EndTurn() *Builder {
+	b.endTurn = true
+	return b
+}
+
 // Build constructs the Agent with a populated tool registry.
 func (b *Builder) Build() *Agent {
 	reg := tool.NewRegistry()
@@ -130,6 +138,10 @@ func (b *Builder) Build() *Agent {
 
 	if len(b.handoffTargets) > 0 {
 		reg.Register(tool.NewTransferTool(b.handoffTargets))
+	}
+
+	if b.endTurn {
+		reg.Register(tool.NewEndTurnTool())
 	}
 
 	ag := &Agent{

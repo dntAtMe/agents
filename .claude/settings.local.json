@@ -21,7 +21,13 @@
       "Bash(git stash pop:*)",
       "Bash(go doc:*)",
       "Bash(go run -c \"package main; import \"\"google.golang.org/genai\"\"; import \"\"fmt\"\"; func main\\(\\) { fmt.Println\\(genai.FunctionCallingConfigModeAuto\\) }\")",
-      "Bash(go run:*)"
+      "Bash(go run:*)",
+      "WebFetch(domain:developers.googleblog.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:discuss.ai.google.dev)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebFetch(domain:geminicli.com)",
+      "WebFetch(domain:www.digitalocean.com)"
     ]
   }
 }

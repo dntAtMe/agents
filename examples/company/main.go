@@ -304,7 +304,7 @@ func main() {
 		).
 		ThinkingEnabled(*thinkingEnabled)
 	if *toolOnlyMode {
-		ceoBuilder = ceoBuilder.ToolMode(llm.ToolModeAny)
+		ceoBuilder = ceoBuilder.ToolMode(llm.ToolModeAny).EndTurn()
 	}
 	registry.Register(ceoBuilder.Build())
 
@@ -325,7 +325,7 @@ func main() {
 		).
 		ThinkingEnabled(*thinkingEnabled)
 	if *toolOnlyMode {
-		shareholdersBuilder = shareholdersBuilder.ToolMode(llm.ToolModeAny)
+		shareholdersBuilder = shareholdersBuilder.ToolMode(llm.ToolModeAny).EndTurn()
 	}
 	registry.Register(shareholdersBuilder.Build())
 
@@ -421,6 +421,7 @@ func main() {
 		"workspace_root":        workspaceRoot,
 		"project_name":          userPrompt,
 		"agent_order":           agentOrder,
+		"tool_only_mode":        *toolOnlyMode,
 		company.KeyOrgHierarchy: orgHierarchy,
 		company.KeyFiredAgents:  map[string]bool{},
 		company.KeyActionPoints: apTracker,
@@ -454,6 +455,33 @@ func main() {
 			"Use check_stock_price for detailed history. The shareholders assess performance each round."
 	}
 
+	// Team roster renderer
+	initialState["team_renderer"] = func(agentName string) string {
+		currentOrder, _ := initialState["agent_order"].([]string)
+		fired := company.GetFiredAgents(initialState)
+		if len(currentOrder) <= 2 {
+			// Only CEO + shareholders — no team yet
+			return "Your team: No employees hired yet (besides you)."
+		}
+		var sb strings.Builder
+		sb.WriteString("Current team members:\n")
+		for _, name := range currentOrder {
+			if fired[name] {
+				continue
+			}
+			if name == agentName {
+				sb.WriteString(fmt.Sprintf("- %s (you)", name))
+			} else {
+				sb.WriteString(fmt.Sprintf("- %s", name))
+			}
+			if mgr := orgHierarchy.GetManager(name); mgr != "" {
+				sb.WriteString(fmt.Sprintf(" [reports to %s]", mgr))
+			}
+			sb.WriteString("\n")
+		}
+		return sb.String()
+	}
+
 	// Environment renderer
 	initialState["env_renderer"] = func(agentName string) string {
 		env := company.GetAgentEnvironment(initialState, agentName)
@@ -472,7 +500,7 @@ func main() {
 	applyGlobalSettings := func(b *agent.Builder) *agent.Builder {
 		b = b.ThinkingEnabled(*thinkingEnabled)
 		if *toolOnlyMode {
-			b = b.ToolMode(llm.ToolModeAny)
+			b = b.ToolMode(llm.ToolModeAny).EndTurn()
 		}
 		return b
 	}
@@ -708,9 +736,12 @@ func main() {
 
 	// Store closures in state for the hiring tools to use
 	initialState["register_temp_agent"] = func(name, systemPrompt string) {
-		// Create a minimal agent with no tools (just talks)
-		ag := applyGlobalSettings(agent.New(name).
-			SystemPrompt(systemPrompt)).
+		// Create a minimal agent with no tools (just talks).
+		// Do NOT apply global settings — candidates have no tools,
+		// so ToolModeAny would crash (API rejects ANY with zero functions).
+		ag := agent.New(name).
+			SystemPrompt(systemPrompt).
+			ThinkingEnabled(*thinkingEnabled).
 			Build()
 		ag.Hooks = merged
 		registry.RegisterOrReplace(ag)

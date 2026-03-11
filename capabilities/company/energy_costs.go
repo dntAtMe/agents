@@ -33,6 +33,7 @@ var ToolCosts = map[string]int{
 	"hire_decision":         3,
 	"update_stock_price":    3,
 	"check_stock_price":     1,
+	"end_turn":              0,
 }
 
 // GetToolCost returns the AP cost for a tool. Unknown tools default to 2.

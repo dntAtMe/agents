@@ -142,6 +142,18 @@ func Simulate(
 			config.OnAgentActivation(round, targetName)
 		}
 
+		// Sub-invocations (interviews, meetings) should produce text only.
+		// Strip tools and ToolMode so the agent generates plain text.
+		// Safe because simulation is single-threaded.
+		savedToolMode := ag.ToolMode
+		savedTools := ag.Tools
+		ag.ToolMode = nil
+		ag.Tools = nil
+		defer func() {
+			ag.ToolMode = savedToolMode
+			ag.Tools = savedTools
+		}()
+
 		conv := conversation.New()
 		conv.AppendUserText(message)
 		result, err := Run(ctx, predictor, ag, conv, callerState)
@@ -214,6 +226,13 @@ func Simulate(
 			userPrompt,
 		))
 	}
+	if toolOnlyMode, _ := state["tool_only_mode"].(bool); toolOnlyMode {
+		bootstrapConv.AppendUserText(
+			"When you are done with your turn, call end_turn with status='done' and a summary. " +
+				"If there is nothing to do, call end_turn with status='idle'.",
+		)
+	}
+
 	bootstrapConv.AppendUserText(fmt.Sprintf(
 		"Current patience level: %d/100 (%s). Let this shape your tone and urgency: "+
 			"as patience drops, be more direct, push harder on blockers, and escalate sooner.",
@@ -425,6 +444,14 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 
 	sb.WriteString(fmt.Sprintf("[System: Round %d. You are %s.]\n\n", round, agentName))
 
+	// Inject team roster so the agent knows who is on the team
+	if teamRenderer, ok := state["team_renderer"].(func(string) string); ok {
+		if teamInfo := teamRenderer(agentName); teamInfo != "" {
+			sb.WriteString(teamInfo)
+			sb.WriteString("\n")
+		}
+	}
+
 	sb.WriteString("IMPORTANT — Start your turn by checking your inbox with check_inbox.\n")
 	sb.WriteString("Emails from colleagues may contain requests, questions, or information you need to act on.\n")
 	sb.WriteString("Reply to any emails that need a response before moving on to other work.\n\n")
@@ -437,7 +464,13 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 		sb.WriteString("This may be your first activation — read updates to understand the current state.\n")
 	}
 
-	sb.WriteString("\nIf there is work for you to do, do it. If there is nothing for you to do, respond with just 'IDLE'.\n")
+	toolOnlyMode, _ := state["tool_only_mode"].(bool)
+	if toolOnlyMode {
+		sb.WriteString("\nWhen you are done with your turn, call end_turn with status='done' and a summary.\n")
+		sb.WriteString("If there is nothing to do, call end_turn with status='idle'.\n")
+	} else {
+		sb.WriteString("\nIf there is work for you to do, do it. If there is nothing for you to do, respond with just 'IDLE'.\n")
+	}
 	sb.WriteString(fmt.Sprintf(
 		"\nCurrent patience level: %d/100 (%s).\n",
 		patience, patienceTier(patience),

@@ -197,6 +197,28 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 				}, nil
 			}
 
+			// Check for end_turn (hooks not invoked for end_turn).
+			if fc.Name == tool.EndTurnToolName {
+				status, _ := fc.Args["status"].(string)
+				summary, _ := fc.Args["summary"].(string)
+				finalText := summary
+				if status == "idle" {
+					if summary != "" {
+						finalText = "IDLE: " + summary
+					} else {
+						finalText = "IDLE"
+					}
+				}
+				return &RunResult{
+					FinalText:       finalText,
+					Conversation:    conv,
+					TotalTokens:     totalTokens,
+					Iterations:      iteration,
+					TerminateReason: "end_turn",
+					State:           state,
+				}, nil
+			}
+
 			// BeforeToolCall hook.
 			if ag.Hooks != nil && ag.Hooks.BeforeToolCall != nil {
 				hc := &HookContext{

@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"google.golang.org/genai"
 )
@@ -14,7 +16,7 @@ type GeminiProvider struct {
 }
 
 // NewGemini creates a Gemini provider using the provided API key.
-// Uses "gemini-2.0-flash" as the default model.
+// The default model is read from GEMINI_MODEL env var, falling back to "gemini-2.0-flash".
 func NewGemini(ctx context.Context, apiKey string) (*GeminiProvider, error) {
 	c, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  apiKey,
@@ -23,9 +25,13 @@ func NewGemini(ctx context.Context, apiKey string) (*GeminiProvider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
+	model := os.Getenv("GEMINI_MODEL")
+	if model == "" {
+		model = "gemini-2.0-flash"
+	}
 	return &GeminiProvider{
 		inner:        c,
-		defaultModel: "gemini-2.0-flash",
+		defaultModel: model,
 	}, nil
 }
 
@@ -42,6 +48,16 @@ func (g *GeminiProvider) GenerateContent(
 
 	genaiMessages := toGenaiContents(messages)
 	genaiConfig := toGenaiConfig(config)
+
+	// Gemini 2.5+ models enable thinking by default. When the caller did
+	// not request thinking, explicitly disable it so we don't burn tokens.
+	// We can't send ThinkingConfig to 2.0 models (API rejects it).
+	if genaiConfig.ThinkingConfig == nil && modelSupportsThinking(model) {
+		budget := int32(0)
+		genaiConfig.ThinkingConfig = &genai.ThinkingConfig{
+			ThinkingBudget: &budget,
+		}
+	}
 
 	resp, err := g.inner.Models.GenerateContent(ctx, model, genaiMessages, genaiConfig)
 	if err != nil {
@@ -275,4 +291,10 @@ func fromGenaiPart(p *genai.Part) *Part {
 		}
 	}
 	return part
+}
+
+// modelSupportsThinking returns true for Gemini models that enable thinking
+// by default (2.5+). These models need an explicit ThinkingBudget=0 to disable.
+func modelSupportsThinking(model string) bool {
+	return strings.Contains(model, "-2.5-") || strings.Contains(model, "-2.5")
 }
