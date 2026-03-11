@@ -90,10 +90,13 @@ func StartInterviewTool() tool.Tool {
 					"- Personality type: %s\n"+
 					"- Motivation: %s\n"+
 					"- Communication style: %s\n"+
-					"- Work culture: %s\n\n"+
+					"- Work culture: %s\n"+
+					"- Skillset: %s\n"+
+					"- Specializations: %s\n\n"+
 					"INTERVIEW RULES:\n"+
 					"- Answer the interviewer's questions naturally and conversationally.\n"+
 					"- Let your personality come through in HOW you answer, not by describing your traits.\n"+
+					"- Reference your skills and specializations naturally when relevant.\n"+
 					"- Be specific and give examples when possible.\n"+
 					"- Keep responses concise (2-4 paragraphs max).\n"+
 					"- Do NOT reveal your personality type or work ethic label.\n"+
@@ -101,6 +104,7 @@ func StartInterviewTool() tool.Tool {
 				candidateName, position, background,
 				personality.Name, personality.Motivation,
 				personality.CommunicationStyle, personality.WorkCulture,
+				personality.Skillset, strings.Join(personality.Specializations, ", "),
 			)
 
 			if jobDesc != "" {

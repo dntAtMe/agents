@@ -3,6 +3,7 @@ package company
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 )
 
 // WorkEthic classifies a personality's attitude toward work.
@@ -22,6 +23,8 @@ type Personality struct {
 	Motivation         string    // what drives this person
 	CommunicationStyle string    // how they talk/write
 	WorkCulture        string    // behavioral description of how they work day-to-day
+	Skillset           string    // e.g. "backend", "leadership"
+	Specializations    []string  // e.g. ["microservices", "kubernetes"]
 }
 
 // Description renders the personality into a prompt-ready markdown string.
@@ -38,6 +41,10 @@ func (p *Personality) Description() string {
 	}
 	if p.WorkCulture != "" {
 		s += fmt.Sprintf("\n### Work Culture\n%s\n", p.WorkCulture)
+	}
+	if p.Skillset != "" {
+		s += fmt.Sprintf("\n### Skills\n**Skillset:** %s\n**Specializations:** %s\n",
+			p.Skillset, strings.Join(p.Specializations, ", "))
 	}
 	return s
 }
@@ -160,6 +167,74 @@ var maliciousPersonalities = []Personality{
 		CommunicationStyle: "Competent and thoughtful-sounding. You use industry jargon and appeal to best practices to justify decisions that maximize complexity. Example tone: \"I think we need to consider the long-term implications. A microservices architecture would give us more flexibility here.\"",
 		WorkCulture:        "You seem competent but subtly steer the project toward failure. Your \"reasonable\" suggestions maximize complexity and delay. You advocate for over-engineering, unnecessary abstractions, and premature optimization. You raise valid-sounding concerns that create analysis paralysis.",
 	},
+}
+
+// --- Skill pools ---
+
+var technicalSkillsets = []string{"backend", "frontend", "infrastructure", "full-stack", "data-engineering", "security"}
+var technicalSpecializations = []string{"microservices", "kubernetes", "REST APIs", "GraphQL", "React", "databases", "CI/CD", "cloud-native", "testing", "performance-optimization", "event-driven-architecture", "containerization"}
+
+var managementSkillsets = []string{"leadership", "strategy", "operations", "product-management", "people-management"}
+var managementSpecializations = []string{"agile", "stakeholder-management", "roadmap-planning", "team-building", "conflict-resolution", "budget-management", "OKRs", "cross-functional-coordination"}
+
+var ctoSkillsets = []string{"technical-leadership", "architecture", "engineering-management"}
+
+// technicalRoles maps position names that should receive technical skills.
+var technicalRoles = map[string]bool{
+	"backend-dev":  true,
+	"frontend-dev": true,
+	"devops":       true,
+	"architect":    true,
+}
+
+// managementRoles maps position names that should receive management skills.
+var managementRoles = map[string]bool{
+	"ceo":             true,
+	"product-manager": true,
+	"project-manager": true,
+}
+
+// RollSkills picks a random skillset and 2-3 specializations for the given position.
+// CTO bridges both technical and management pools.
+func RollSkills(position string) (string, []string) {
+	var skillsets []string
+	var specPool []string
+
+	switch {
+	case position == "cto":
+		skillsets = ctoSkillsets
+		// CTO picks from both pools
+		specPool = make([]string, 0, len(technicalSpecializations)+len(managementSpecializations))
+		specPool = append(specPool, technicalSpecializations...)
+		specPool = append(specPool, managementSpecializations...)
+	case technicalRoles[position]:
+		skillsets = technicalSkillsets
+		specPool = technicalSpecializations
+	case managementRoles[position]:
+		skillsets = managementSkillsets
+		specPool = managementSpecializations
+	default:
+		// Unknown position — default to technical
+		skillsets = technicalSkillsets
+		specPool = technicalSpecializations
+	}
+
+	// Pick 1 random skillset
+	skillset := skillsets[rand.Intn(len(skillsets))]
+
+	// Pick 2-3 random specializations (no repeats)
+	numSpecs := 2 + rand.Intn(2) // 2 or 3
+	if numSpecs > len(specPool) {
+		numSpecs = len(specPool)
+	}
+
+	// Shuffle a copy of the pool and take the first numSpecs
+	shuffled := make([]string, len(specPool))
+	copy(shuffled, specPool)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+
+	specializations := shuffled[:numSpecs]
+	return skillset, specializations
 }
 
 // agentRoles maps agent names to their role/responsibility descriptions.
@@ -360,6 +435,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 		if alwaysHardWorking[name] {
 			p := hwPool[hwIdx%len(hwPool)]
 			p.Role = agentRoles[name]
+			p.Skillset, p.Specializations = RollSkills(name)
 			assignments[name] = &p
 			hwIdx++
 		} else {
@@ -374,11 +450,13 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 		if i%2 == 0 {
 			p := slPool[slIdx%len(slPool)]
 			p.Role = agentRoles[name]
+			p.Skillset, p.Specializations = RollSkills(name)
 			assignments[name] = &p
 			slIdx++
 		} else {
 			p := hwPool[hwIdx%len(hwPool)]
 			p.Role = agentRoles[name]
+			p.Skillset, p.Specializations = RollSkills(name)
 			assignments[name] = &p
 			hwIdx++
 		}
@@ -390,6 +468,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 		target := otherAgents[rand.Intn(len(otherAgents))]
 		p := malPool[0]
 		p.Role = agentRoles[target]
+		p.Skillset, p.Specializations = RollSkills(target)
 		assignments[target] = &p
 	}
 

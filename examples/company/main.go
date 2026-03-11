@@ -254,8 +254,9 @@ func main() {
 	ceoIdentity := prompt.Identity(ceoPersonalities["ceo"].Role)
 	ceoPers := ceoPersonalities["ceo"]
 	ceoPersonalityMixin := prompt.Mixin{Name: "Personality", Content: fmt.Sprintf(
-		"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s",
+		"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s\n\n**Skillset:** %s\n**Specializations:** %s",
 		ceoPers.Name, ceoPers.WorkEthic, ceoPers.Motivation, ceoPers.CommunicationStyle, ceoPers.WorkCulture,
+		ceoPers.Skillset, strings.Join(ceoPers.Specializations, ", "),
 	)}
 
 	ceoBuilder := agent.New("ceo").
@@ -512,8 +513,9 @@ func main() {
 		// Build identity and personality mixins from the hired personality
 		identityMixin := prompt.Identity(personality.Role)
 		personalityMixin := prompt.Mixin{Name: "Personality", Content: fmt.Sprintf(
-			"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s",
+			"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s\n\n**Skillset:** %s\n**Specializations:** %s",
 			personality.Name, personality.WorkEthic, personality.Motivation, personality.CommunicationStyle, personality.WorkCulture,
+			personality.Skillset, strings.Join(personality.Specializations, ", "),
 		)}
 
 		var ag *agent.Agent
