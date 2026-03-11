@@ -122,6 +122,17 @@ func Run(ctx context.Context, predictor Predictor, ag *Agent, conv *conversation
 			}, nil
 		}
 		modelContent := resp.Candidates[0].Content
+		if modelContent == nil {
+			return &RunResult{
+				FinalText:       "",
+				Conversation:    conv,
+				TotalTokens:     totalTokens,
+				CachedTokens:    cachedTokens,
+				Iterations:      iteration,
+				TerminateReason: "empty candidate content",
+				State:           state,
+			}, nil
+		}
 
 		// 6. AfterPredict hook.
 		if ag.Hooks != nil && ag.Hooks.AfterPredict != nil {
