@@ -24,7 +24,16 @@ const (
 	KeyFileSnapshots  = "file_snapshots"
 	KeyCommandLog     = "command_log"
 	KeyActionPoints   = "action_points"
-	KeyStockPrice     = "stock_price"
+	KeyStockPrice        = "stock_price"
+	KeyInterviews        = "interviews"
+	KeyHiredAgents       = "hired_agents"
+	KeyAgentEnvironment  = "agent_environment"
+)
+
+// Environment constants.
+const (
+	EnvOffice    = "office"
+	EnvInterview = "interview"
 )
 
 // GetTaskBoard retrieves or creates the TaskBoard in shared state.
@@ -253,6 +262,61 @@ func GetStockTracker(state map[string]any) *StockTracker {
 	st := NewStockTracker(100.0)
 	state[KeyStockPrice] = st
 	return st
+}
+
+// GetInterviewLog retrieves or creates the InterviewLog in shared state.
+func GetInterviewLog(state map[string]any) *InterviewLog {
+	if v, ok := state[KeyInterviews]; ok {
+		if il, ok := v.(*InterviewLog); ok {
+			return il
+		}
+	}
+	il := NewInterviewLog()
+	state[KeyInterviews] = il
+	return il
+}
+
+// GetHiredAgents returns the list of hired agent names from state.
+func GetHiredAgents(state map[string]any) []string {
+	if v, ok := state[KeyHiredAgents]; ok {
+		if s, ok := v.([]string); ok {
+			return s
+		}
+	}
+	return nil
+}
+
+// AddHiredAgent appends an agent name to the hired agents list.
+func AddHiredAgent(state map[string]any, name string) {
+	hired := GetHiredAgents(state)
+	hired = append(hired, name)
+	state[KeyHiredAgents] = hired
+}
+
+// SetAgentEnvironment sets the current environment for an agent.
+func SetAgentEnvironment(state map[string]any, agentName, env string) {
+	envMap := getAgentEnvironmentMap(state)
+	envMap[agentName] = env
+}
+
+// GetAgentEnvironment returns the current environment for an agent (defaults to "office").
+func GetAgentEnvironment(state map[string]any, agentName string) string {
+	envMap := getAgentEnvironmentMap(state)
+	if env, ok := envMap[agentName]; ok {
+		return env
+	}
+	return EnvOffice
+}
+
+func getAgentEnvironmentMap(state map[string]any) map[string]string {
+	if v, ok := state[KeyAgentEnvironment]; ok {
+		if m, ok := v.(map[string]string); ok {
+			return m
+		}
+	}
+	m := make(map[string]string)
+	state[KeyAgentEnvironment] = m
+	return m
 }
 
 // GetFiredAgents returns the map of fired agents from state.

@@ -1,6 +1,5 @@
-// Package main demonstrates the company simulation with 8 agents collaborating
-// in a round-based loop. Each agent wakes up, checks for work, acts, and writes
-// a personal diary entry.
+// Package main demonstrates the company simulation with dynamic hiring.
+// The CEO starts alone, interviews candidates, and builds the team.
 //
 // Run with: GEMINI_API_KEY=... go run ./examples/company "Build a simple todo REST API"
 // Or with Ollama: LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1 go run ./examples/company "Build a simple todo REST API"
@@ -131,7 +130,7 @@ func main() {
 	resumeCh := make(chan struct{}, 1)
 	injectCh := make(chan tui.InjectEmail, 4)
 
-	// Shared diary instruction appended to all agent prompts
+	// Shared instruction strings
 	diaryInstruction := "At the end of your turn, always write a diary entry with write_diary. " +
 		"Be honest and personal — reflect on your work, the project direction, " +
 		"your thoughts about the team's work, frustrations, and celebrations."
@@ -145,101 +144,6 @@ func main() {
 	contextInstruction := "This is a simulation. Read updates since your last active round to catch up. " +
 		"Use read_updates, read_task_board, and read_file to understand the current state before acting."
 
-	// --- Assign personalities ---
-	// Agents that get personalities (shareholders is excluded)
-	personalityAgents := []string{
-		"ceo", "product-manager", "cto", "architect",
-		"project-manager", "backend-dev", "frontend-dev", "devops",
-	}
-	// All agents including shareholders
-	agentNames := []string{
-		"ceo", "product-manager", "cto", "architect",
-		"project-manager", "backend-dev", "frontend-dev", "devops",
-		"shareholders",
-	}
-	personalities := company.AssignPersonalities(personalityAgents)
-	shareholderTemperament := company.AssignShareholderTemperament()
-
-	// Write personality files to workspace (skip shareholders — handled separately)
-	for _, name := range personalityAgents {
-		p := personalities[name]
-		personalityPath := filepath.Join(workspaceRoot, name, "personality.md")
-		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
-		_ = os.WriteFile(personalityPath, []byte(p.Description()), 0o644)
-	}
-	// Write shareholders temperament file
-	{
-		personalityPath := filepath.Join(workspaceRoot, "shareholders", "personality.md")
-		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
-		_ = os.WriteFile(personalityPath, []byte(shareholderTemperament.Render()), 0o644)
-	}
-
-	// --- Build Org Hierarchy ---
-	orgHierarchy := company.NewOrgHierarchy()
-	orgHierarchy.SetManager("product-manager", "ceo")
-	orgHierarchy.SetManager("cto", "ceo")
-	orgHierarchy.SetManager("project-manager", "ceo")
-	orgHierarchy.SetManager("architect", "cto")
-	orgHierarchy.SetManager("backend-dev", "architect")
-	orgHierarchy.SetManager("frontend-dev", "architect")
-	orgHierarchy.SetManager("devops", "architect")
-
-	// Shared tools for all agents
-	sendEmail := company.SendEmailTool()
-	checkInbox := company.CheckInboxTool()
-	replyEmail := company.ReplyEmailTool()
-
-	// Relationship tools (all agents)
-	viewRelationships := company.ViewRelationshipsTool()
-	updateRelationship := company.UpdateRelationshipTool()
-
-	// Escalation tools
-	fileEscalation := company.FileEscalationTool()
-	viewEscalations := company.ViewEscalationsTool()
-	respondToEscalation := company.RespondToEscalationTool()
-	recordPiP := company.RecordPiPTool()
-
-	// Firing tools
-	requestFire := company.RequestFireTool()
-	viewFireRequests := company.ViewFireRequestsTool()
-	approveFire := company.ApproveFireTool()
-
-	// Meeting tool — only non-leaf agents can call meetings
-	nonLeafAgents := []string{"ceo", "product-manager", "cto", "architect", "project-manager"}
-	callMeeting := company.CallGroupMeetingTool(nonLeafAgents)
-
-	// Code editing & search tools
-	editFile := company.EditFileTool()
-	searchFiles := company.SearchFilesTool()
-	diffFile := company.DiffFileTool()
-
-	// Coffee break tool (all agents)
-	getCoffee := company.GetCoffeeTool()
-
-	// Command execution tool
-	runCommand := company.RunCommandTool()
-
-	// Structured code review tools
-	startCodeReview := company.StartCodeReviewTool()
-	addReviewComment := company.AddReviewCommentTool()
-	submitCodeReview := company.SubmitCodeReviewTool()
-	readCodeReviews := company.ReadCodeReviewsTool()
-
-	// Helper to build identity mixin from personality role
-	identityMixin := func(name string) prompt.Mixin {
-		return prompt.Identity(personalities[name].Role)
-	}
-
-	// Helper to build personality mixin
-	personalityMixin := func(name string) prompt.Mixin {
-		p := personalities[name]
-		return prompt.Mixin{Name: "Personality", Content: fmt.Sprintf(
-			"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s",
-			p.Name, p.WorkEthic, p.Motivation, p.CommunicationStyle, p.WorkCulture,
-		)}
-	}
-
-	// Communication instructions
 	meetingEmailInstruction := "Always check_inbox at the start of your turn — do not skip this. " +
 		"Read and reply to any emails that need a response before doing other work. " +
 		"Use send_email to send requests, status updates, or questions to colleagues. " +
@@ -250,7 +154,6 @@ func main() {
 		"Use send_email to send requests, status updates, or questions to colleagues. " +
 		"Use send_email with urgent=true when you need an immediate response from a colleague."
 
-	// Relationship & escalation instructions
 	relationshipInstruction := "Use view_relationships to see your relationship scores with colleagues. " +
 		"Use update_relationship to adjust scores based on interactions (delta -20 to +20). " +
 		"Use file_escalation to formally report a colleague's bad behavior to their manager — do not hesitate to escalate repeated problems. " +
@@ -268,34 +171,92 @@ func main() {
 		"Approve firing requests promptly when justified — the company cannot afford dead weight. " +
 		"Use approve_fire to approve or deny them."
 
-	// Coding workflow instructions for developers
 	codingWorkflowInstruction := "Your coding workflow: 1) Search existing code with search_files to understand context. " +
 		"2) Write/edit code with write_file or edit_file. 3) Run build and tests with run_command. " +
 		"4) If build/tests fail, fix the code and re-run. Iterate until passing. " +
 		"5) Update task to 'awaiting_review' only when build succeeds. " +
 		"6) After review, use read_code_reviews to see inline feedback, then fix with edit_file."
 
-	// Code review workflow instructions for reviewers
 	codeReviewInstruction := "When reviewing code: 1) Read the source files with read_file and search_files. " +
 		"2) Use start_code_review to begin a review, then add_review_comment for each issue " +
 		"with specific file, line, and severity. 3) Use submit_code_review with your verdict. " +
 		"4) Optionally run_command to verify the implementation builds/passes tests."
 
-	// --- Register all 8 agents ---
+	hiringInstruction := "You need to build your team. Use start_interview to interview candidates. " +
+		"After reviewing the transcript, use hire_decision to hire or pass. " +
+		"Available positions: product-manager, cto, architect, project-manager, " +
+		"backend-dev, frontend-dev, devops. Hire strategically — a candidate's true personality " +
+		"is hidden, so judge carefully from their interview responses."
+
+	// --- Assign CEO personality only at startup ---
+	ceoPersonalities := company.AssignPersonalities([]string{"ceo"})
+	shareholderTemperament := company.AssignShareholderTemperament()
+
+	// Write CEO personality file
+	{
+		p := ceoPersonalities["ceo"]
+		personalityPath := filepath.Join(workspaceRoot, "ceo", "personality.md")
+		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
+		_ = os.WriteFile(personalityPath, []byte(p.Description()), 0o644)
+	}
+	// Write shareholders temperament file
+	{
+		personalityPath := filepath.Join(workspaceRoot, "shareholders", "personality.md")
+		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
+		_ = os.WriteFile(personalityPath, []byte(shareholderTemperament.Render()), 0o644)
+	}
+
+	// --- Build Org Hierarchy (starts minimal, grows as agents are hired) ---
+	orgHierarchy := company.NewOrgHierarchy()
+
+	// Shared tool instances
+	sendEmail := company.SendEmailTool()
+	checkInbox := company.CheckInboxTool()
+	replyEmail := company.ReplyEmailTool()
+	viewRelationships := company.ViewRelationshipsTool()
+	updateRelationship := company.UpdateRelationshipTool()
+	fileEscalation := company.FileEscalationTool()
+	viewEscalations := company.ViewEscalationsTool()
+	respondToEscalation := company.RespondToEscalationTool()
+	recordPiP := company.RecordPiPTool()
+	requestFire := company.RequestFireTool()
+	viewFireRequests := company.ViewFireRequestsTool()
+	approveFire := company.ApproveFireTool()
+	nonLeafAgents := []string{"ceo", "product-manager", "cto", "architect", "project-manager"}
+	callMeeting := company.CallGroupMeetingTool(nonLeafAgents)
+	editFile := company.EditFileTool()
+	searchFiles := company.SearchFilesTool()
+	diffFile := company.DiffFileTool()
+	getCoffee := company.GetCoffeeTool()
+	runCommand := company.RunCommandTool()
+	startCodeReview := company.StartCodeReviewTool()
+	addReviewComment := company.AddReviewCommentTool()
+	submitCodeReview := company.SubmitCodeReviewTool()
+	readCodeReviews := company.ReadCodeReviewsTool()
+
+	// --- Register only CEO and shareholders at startup ---
 	registry := agent.NewRegistry()
 
-	// CEO
+	// CEO — with hiring tools added
+	ceoIdentity := prompt.Identity(ceoPersonalities["ceo"].Role)
+	ceoPers := ceoPersonalities["ceo"]
+	ceoPersonalityMixin := prompt.Mixin{Name: "Personality", Content: fmt.Sprintf(
+		"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s",
+		ceoPers.Name, ceoPers.WorkEthic, ceoPers.Motivation, ceoPers.CommunicationStyle, ceoPers.WorkCulture,
+	)}
+
 	registry.Register(agent.New("ceo").
 		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("ceo")).
-			Add(personalityMixin("ceo")).
+			Add(ceoIdentity).
+			Add(ceoPersonalityMixin).
 			Add(prompt.HandoffPolicy(
 				"Delegate to product-manager for requirements and PRD writing. "+
 					"Delegate to cto for technical architecture and development oversight. "+
 					"Delegate to project-manager for task breakdown and tracking. "+
 					"You can change project direction mid-stream if needed.")).
 			Add(prompt.ToolUsage(
-				meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction+"\n"+ceoFireInstruction)).
+				hiringInstruction+"\n"+
+					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction+"\n"+ceoFireInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
 		Tools(
@@ -323,319 +284,10 @@ func main() {
 			approveFire,
 			getCoffee,
 			company.CheckStockPriceTool(),
-		).
-		HandoffTo("product-manager", "cto", "project-manager").
-		Build())
 
-	// Product Manager
-	registry.Register(agent.New("product-manager").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("product-manager")).
-			Add(personalityMixin("product-manager")).
-			Add(prompt.ToolUsage(
-				"Use write_file to create/update shared/prd.md. "+
-					"Use read_file to check existing documents. "+
-					"Use post_update to announce PRD updates. "+
-					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.WriteFileTool(),
-			company.ListFilesTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.WriteDiaryTool(),
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			callMeeting,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			viewEscalations,
-			respondToEscalation,
-			recordPiP,
-			requestFire,
-			getCoffee,
-		).
-		Build())
-
-	// CTO
-	registry.Register(agent.New("cto").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("cto")).
-			Add(personalityMixin("cto")).
-			Add(prompt.HandoffPolicy(
-				"Delegate detailed design and code review to the architect.")).
-			Add(prompt.ToolUsage(
-				"Use write_file for shared/architecture.md. "+
-					"Use log_decision for ADRs. Use read_task_board to check progress. "+
-					"Use post_update to announce technical decisions. "+
-					codeReviewInstruction+"\n"+
-					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.WriteFileTool(),
-			company.ListFilesTool(),
-			company.AppendToFileTool(),
-			company.ReadTaskBoardTool(),
-			company.UpdateTaskTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.LogDecisionTool(),
-			company.ReadDecisionsTool(),
-			company.WriteDiaryTool(),
-			company.WriteReviewTool(),
-
-			searchFiles,
-			diffFile,
-			startCodeReview,
-			addReviewComment,
-			submitCodeReview,
-			readCodeReviews,
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			callMeeting,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			viewEscalations,
-			respondToEscalation,
-			recordPiP,
-			requestFire,
-			getCoffee,
-			company.CheckStockPriceTool(),
-		).
-		HandoffTo("architect").
-		Build())
-
-	// Software Architect
-	registry.Register(agent.New("architect").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("architect")).
-			Add(personalityMixin("architect")).
-			Add(prompt.HandoffPolicy(
-				"You can delegate implementation work to backend-dev, frontend-dev, or devops.")).
-			Add(prompt.ToolUsage(
-				"Use read_file to review developer plans. "+
-					"Use write_review to approve or request changes on implementation plans. "+
-					"Use post_update to announce review results on the 'reviews' channel. "+
-					"Use log_decision for architectural decisions. "+
-					codeReviewInstruction+"\n"+
-					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.WriteFileTool(),
-			company.ListFilesTool(),
-			company.ReadTaskBoardTool(),
-			company.UpdateTaskTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.LogDecisionTool(),
-			company.ReadDecisionsTool(),
-			company.WriteDiaryTool(),
-			company.WriteReviewTool(),
-
-			searchFiles,
-			diffFile,
-			runCommand,
-			startCodeReview,
-			addReviewComment,
-			submitCodeReview,
-			readCodeReviews,
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			callMeeting,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			viewEscalations,
-			respondToEscalation,
-			recordPiP,
-			requestFire,
-			getCoffee,
-		).
-		HandoffTo("backend-dev", "frontend-dev", "devops").
-		Build())
-
-	// Project Manager
-	registry.Register(agent.New("project-manager").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("project-manager")).
-			Add(personalityMixin("project-manager")).
-			Add(prompt.ToolUsage(
-				"Use add_task to create tasks — ALWAYS set a deadline. Use the reviewer param to assign a reviewer (e.g. 'architect', 'cto'). "+
-					"Use update_task to change statuses. "+
-					"Use read_task_board to review current state and check for overdue tasks. "+
-					"Use post_update to announce sprint status. "+
-					"Use send_email with urgent=true to chase developers on overdue or stalled tasks. "+
-					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.ListFilesTool(),
-			company.AddTaskTool(),
-			company.UpdateTaskTool(),
-			company.ReadTaskBoardTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.WriteDiaryTool(),
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			callMeeting,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			viewEscalations,
-			respondToEscalation,
-			recordPiP,
-			requestFire,
-			getCoffee,
-		).
-		Build())
-
-	// Backend Developer
-	registry.Register(agent.New("backend-dev").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("backend-dev")).
-			Add(personalityMixin("backend-dev")).
-			Add(prompt.ToolUsage(
-				"Use read_task_board to find your assigned tasks. "+
-					"Use write_file for plans and source code. "+
-					"Use read_file to check architect reviews. "+
-					"Use update_task to change task status. "+
-					"Use post_update to request reviews. "+
-					"Use write_review to review tasks when you are the assigned reviewer. "+
-					codingWorkflowInstruction+"\n"+
-					emailOnlyInstruction+"\n"+relationshipInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.WriteFileTool(),
-			company.ListFilesTool(),
-			company.AppendToFileTool(),
-			company.ReadTaskBoardTool(),
-			company.UpdateTaskTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.WriteDiaryTool(),
-			company.WriteReviewTool(),
-
-			editFile,
-			searchFiles,
-			diffFile,
-			runCommand,
-			readCodeReviews,
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			getCoffee,
-		).
-		Build())
-
-	// Frontend Developer
-	registry.Register(agent.New("frontend-dev").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("frontend-dev")).
-			Add(personalityMixin("frontend-dev")).
-			Add(prompt.ToolUsage(
-				"Use read_task_board to find your assigned tasks. "+
-					"Use write_file for plans and source code. "+
-					"Use read_file to check architect reviews. "+
-					"Use update_task to change task status. "+
-					"Use post_update to request reviews. "+
-					"Use write_review to review tasks when you are the assigned reviewer. "+
-					codingWorkflowInstruction+"\n"+
-					emailOnlyInstruction+"\n"+relationshipInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.WriteFileTool(),
-			company.ListFilesTool(),
-			company.AppendToFileTool(),
-			company.ReadTaskBoardTool(),
-			company.UpdateTaskTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.WriteDiaryTool(),
-			company.WriteReviewTool(),
-
-			editFile,
-			searchFiles,
-			diffFile,
-			runCommand,
-			readCodeReviews,
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			getCoffee,
-		).
-		Build())
-
-	// DevOps Engineer
-	registry.Register(agent.New("devops").
-		PromptBuilder(prompt.NewBuilder().
-			Add(identityMixin("devops")).
-			Add(personalityMixin("devops")).
-			Add(prompt.ToolUsage(
-				"Use read_task_board to find your assigned tasks. "+
-					"Use write_file for plans and infra code. "+
-					"Use read_file to check architect reviews. "+
-					"Use update_task to change task status. "+
-					"Use post_update to request reviews. "+
-					"Use write_review to review tasks when you are the assigned reviewer. "+
-					codingWorkflowInstruction+"\n"+
-					emailOnlyInstruction+"\n"+relationshipInstruction)).
-			Add(prompt.Context(contextInstruction)).
-			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
-		Tools(
-			company.ReadFileTool(),
-			company.WriteFileTool(),
-			company.ListFilesTool(),
-			company.AppendToFileTool(),
-			company.ReadTaskBoardTool(),
-			company.UpdateTaskTool(),
-			company.PostUpdateTool(),
-			company.ReadUpdatesTool(),
-			company.WriteDiaryTool(),
-			company.WriteReviewTool(),
-
-			editFile,
-			searchFiles,
-			diffFile,
-			runCommand,
-			readCodeReviews,
-
-			sendEmail,
-			checkInbox,
-			replyEmail,
-			viewRelationships,
-			updateRelationship,
-			fileEscalation,
-			getCoffee,
+			// Hiring tools
+			company.StartInterviewTool(),
+			company.HireDecisionTool(),
 		).
 		Build())
 
@@ -656,16 +308,10 @@ func main() {
 		).
 		Build())
 
-	// Validate all handoff targets
-	if err := registry.Finalize(); err != nil {
-		fmt.Fprintf(os.Stderr, "Registry error: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Initialize action point tracker
 	apTracker := company.NewActionPointTracker(15, 5, 3)
 
-	// Attach merged hooks (tracer + TUI + AP) to all agents
+	// Build merged hooks (tracer + TUI + AP)
 	tracerHooks := tr.Hooks()
 	apHooks := &agent.Hooks{
 		BeforeToolCall: func(ctx context.Context, hc *agent.HookContext, fc *llm.FunctionCall) error {
@@ -688,7 +334,7 @@ func main() {
 			// Deduct cost
 			apTracker.Deduct(agentName, cost)
 
-			// Send AP cost to TUI (enriches the tool_call_start event data)
+			// Send AP cost to TUI
 			events <- tui.Event{
 				Type:  "ap_update",
 				Agent: agentName,
@@ -735,7 +381,9 @@ func main() {
 		},
 	}
 	merged := mergeHooks(mergeHooks(tracerHooks, tuiHooks), apHooks)
-	for _, name := range agentNames {
+
+	// Attach hooks to initial agents
+	for _, name := range []string{"ceo", "shareholders"} {
 		ag := registry.Lookup(name)
 		if ag != nil {
 			ag.Hooks = merged
@@ -745,27 +393,28 @@ func main() {
 	// Initialize stock tracker
 	stockTracker := company.NewStockTracker(100.0)
 
-	// Build initial state with org hierarchy and relationship renderer
+	// Build initial state
+	agentOrder := []string{"ceo", "shareholders"}
+
 	initialState := map[string]any{
-		"workspace_root":          workspaceRoot,
-		"project_name":            userPrompt,
-		company.KeyOrgHierarchy:   orgHierarchy,
-		company.KeyFiredAgents:    map[string]bool{},
-		company.KeyActionPoints:   apTracker,
-		company.KeyStockPrice:     stockTracker,
+		"workspace_root":        workspaceRoot,
+		"project_name":          userPrompt,
+		"agent_order":           agentOrder,
+		company.KeyOrgHierarchy: orgHierarchy,
+		company.KeyFiredAgents:  map[string]bool{},
+		company.KeyActionPoints: apTracker,
+		company.KeyStockPrice:   stockTracker,
 	}
 
-	// Store relationship renderer as a closure (avoids circular import)
+	// Store renderers as closures
 	initialState["relationship_renderer"] = func(agentName string) string {
 		return company.GetRelationshipLog(initialState).RenderForAgent(agentName)
 	}
 
-	// Store diary renderer for memory continuity between rounds
 	initialState["diary_renderer"] = func(agentName string) string {
 		return company.LastDiaryEntry(workspaceRoot, agentName)
 	}
 
-	// Store AP renderer for activation prompts
 	initialState["ap_renderer"] = func(agentName string) string {
 		remaining := apTracker.Remaining(agentName)
 		return fmt.Sprintf(
@@ -775,7 +424,6 @@ func main() {
 		)
 	}
 
-	// Store stock renderer — only CEO and CTO see stock info in activation prompt
 	csuite := map[string]bool{"ceo": true, "cto": true}
 	initialState["stock_renderer"] = func(agentName string) string {
 		if !csuite[agentName] {
@@ -785,27 +433,294 @@ func main() {
 			"Use check_stock_price for detailed history. The shareholders assess performance each round."
 	}
 
+	// Environment renderer
+	initialState["env_renderer"] = func(agentName string) string {
+		env := company.GetAgentEnvironment(initialState, agentName)
+		switch env {
+		case company.EnvInterview:
+			return "ENVIRONMENT: You are conducting a job interview."
+		default:
+			return "ENVIRONMENT: You are at your desk in the office."
+		}
+	}
+
+	// --- Agent builder factories (closures that capture shared state) ---
+	// Each factory builds and registers a permanent agent for the given position.
+
+	buildAgentForPosition := func(position string, personality *company.Personality, candidateName string, reportingTo string) error {
+		// Set org hierarchy
+		orgHierarchy.SetManager(position, reportingTo)
+
+		// Build identity and personality mixins from the hired personality
+		identityMixin := prompt.Identity(personality.Role)
+		personalityMixin := prompt.Mixin{Name: "Personality", Content: fmt.Sprintf(
+			"**Personality:** %s\n**Work ethic:** %s\n\n**Motivation:** %s\n\n**Communication style:** %s\n\n**Work culture:** %s",
+			personality.Name, personality.WorkEthic, personality.Motivation, personality.CommunicationStyle, personality.WorkCulture,
+		)}
+
+		var ag *agent.Agent
+
+		switch position {
+		case "product-manager":
+			ag = agent.New(position).
+				PromptBuilder(prompt.NewBuilder().
+					Add(identityMixin).
+					Add(personalityMixin).
+					Add(prompt.ToolUsage(
+						"Use write_file to create/update shared/prd.md. "+
+							"Use read_file to check existing documents. "+
+							"Use post_update to announce PRD updates. "+
+							meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					Add(prompt.Context(contextInstruction)).
+					Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
+				Tools(
+					company.ReadFileTool(),
+					company.WriteFileTool(),
+					company.ListFilesTool(),
+					company.PostUpdateTool(),
+					company.ReadUpdatesTool(),
+					company.WriteDiaryTool(),
+					sendEmail, checkInbox, replyEmail, callMeeting,
+					viewRelationships, updateRelationship,
+					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
+					requestFire, getCoffee,
+				).
+				Build()
+
+		case "cto":
+			ag = agent.New(position).
+				PromptBuilder(prompt.NewBuilder().
+					Add(identityMixin).
+					Add(personalityMixin).
+					Add(prompt.HandoffPolicy("Delegate detailed design and code review to the architect.")).
+					Add(prompt.ToolUsage(
+						"Use write_file for shared/architecture.md. "+
+							"Use log_decision for ADRs. Use read_task_board to check progress. "+
+							"Use post_update to announce technical decisions. "+
+							codeReviewInstruction+"\n"+
+							meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					Add(prompt.Context(contextInstruction)).
+					Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
+				Tools(
+					company.ReadFileTool(),
+					company.WriteFileTool(),
+					company.ListFilesTool(),
+					company.AppendToFileTool(),
+					company.ReadTaskBoardTool(),
+					company.UpdateTaskTool(),
+					company.PostUpdateTool(),
+					company.ReadUpdatesTool(),
+					company.LogDecisionTool(),
+					company.ReadDecisionsTool(),
+					company.WriteDiaryTool(),
+					company.WriteReviewTool(),
+					searchFiles, diffFile,
+					startCodeReview, addReviewComment, submitCodeReview, readCodeReviews,
+					sendEmail, checkInbox, replyEmail, callMeeting,
+					viewRelationships, updateRelationship,
+					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
+					requestFire, getCoffee,
+					company.CheckStockPriceTool(),
+				).
+				Build()
+
+		case "architect":
+			ag = agent.New(position).
+				PromptBuilder(prompt.NewBuilder().
+					Add(identityMixin).
+					Add(personalityMixin).
+					Add(prompt.HandoffPolicy("You can delegate implementation work to backend-dev, frontend-dev, or devops.")).
+					Add(prompt.ToolUsage(
+						"Use read_file to review developer plans. "+
+							"Use write_review to approve or request changes on implementation plans. "+
+							"Use post_update to announce review results on the 'reviews' channel. "+
+							"Use log_decision for architectural decisions. "+
+							codeReviewInstruction+"\n"+
+							meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					Add(prompt.Context(contextInstruction)).
+					Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
+				Tools(
+					company.ReadFileTool(),
+					company.WriteFileTool(),
+					company.ListFilesTool(),
+					company.ReadTaskBoardTool(),
+					company.UpdateTaskTool(),
+					company.PostUpdateTool(),
+					company.ReadUpdatesTool(),
+					company.LogDecisionTool(),
+					company.ReadDecisionsTool(),
+					company.WriteDiaryTool(),
+					company.WriteReviewTool(),
+					searchFiles, diffFile, runCommand,
+					startCodeReview, addReviewComment, submitCodeReview, readCodeReviews,
+					sendEmail, checkInbox, replyEmail, callMeeting,
+					viewRelationships, updateRelationship,
+					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
+					requestFire, getCoffee,
+				).
+				Build()
+
+		case "project-manager":
+			ag = agent.New(position).
+				PromptBuilder(prompt.NewBuilder().
+					Add(identityMixin).
+					Add(personalityMixin).
+					Add(prompt.ToolUsage(
+						"Use add_task to create tasks — ALWAYS set a deadline. Use the reviewer param to assign a reviewer (e.g. 'architect', 'cto'). "+
+							"Use update_task to change statuses. "+
+							"Use read_task_board to review current state and check for overdue tasks. "+
+							"Use post_update to announce sprint status. "+
+							"Use send_email with urgent=true to chase developers on overdue or stalled tasks. "+
+							meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
+					Add(prompt.Context(contextInstruction)).
+					Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
+				Tools(
+					company.ReadFileTool(),
+					company.ListFilesTool(),
+					company.AddTaskTool(),
+					company.UpdateTaskTool(),
+					company.ReadTaskBoardTool(),
+					company.PostUpdateTool(),
+					company.ReadUpdatesTool(),
+					company.WriteDiaryTool(),
+					sendEmail, checkInbox, replyEmail, callMeeting,
+					viewRelationships, updateRelationship,
+					fileEscalation, viewEscalations, respondToEscalation, recordPiP,
+					requestFire, getCoffee,
+				).
+				Build()
+
+		case "backend-dev", "frontend-dev", "devops":
+			ag = agent.New(position).
+				PromptBuilder(prompt.NewBuilder().
+					Add(identityMixin).
+					Add(personalityMixin).
+					Add(prompt.ToolUsage(
+						"Use read_task_board to find your assigned tasks. "+
+							"Use write_file for plans and source code. "+
+							"Use read_file to check architect reviews. "+
+							"Use update_task to change task status. "+
+							"Use post_update to request reviews. "+
+							"Use write_review to review tasks when you are the assigned reviewer. "+
+							codingWorkflowInstruction+"\n"+
+							emailOnlyInstruction+"\n"+relationshipInstruction)).
+					Add(prompt.Context(contextInstruction)).
+					Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
+				Tools(
+					company.ReadFileTool(),
+					company.WriteFileTool(),
+					company.ListFilesTool(),
+					company.AppendToFileTool(),
+					company.ReadTaskBoardTool(),
+					company.UpdateTaskTool(),
+					company.PostUpdateTool(),
+					company.ReadUpdatesTool(),
+					company.WriteDiaryTool(),
+					company.WriteReviewTool(),
+					editFile, searchFiles, diffFile, runCommand, readCodeReviews,
+					sendEmail, checkInbox, replyEmail,
+					viewRelationships, updateRelationship,
+					fileEscalation, getCoffee,
+				).
+				Build()
+
+		default:
+			return fmt.Errorf("unknown position %q", position)
+		}
+
+		// Attach hooks
+		ag.Hooks = merged
+
+		// Register in agent registry
+		registry.RegisterOrReplace(ag)
+
+		// Add to agent order (before "shareholders")
+		currentOrder := initialState["agent_order"].([]string)
+		newOrder := make([]string, 0, len(currentOrder)+1)
+		for _, name := range currentOrder {
+			if name == "shareholders" {
+				newOrder = append(newOrder, position)
+			}
+			newOrder = append(newOrder, name)
+		}
+		// If shareholders wasn't in the list, just append
+		found := false
+		for _, name := range newOrder {
+			if name == position {
+				found = true
+				break
+			}
+		}
+		if !found {
+			newOrder = append(newOrder, position)
+		}
+		initialState["agent_order"] = newOrder
+
+		// Write personality file
+		personalityPath := filepath.Join(workspaceRoot, position, "personality.md")
+		_ = os.MkdirAll(filepath.Dir(personalityPath), 0o755)
+		_ = os.WriteFile(personalityPath, []byte(personality.Description()), 0o644)
+
+		// Initialize workspace directory for the agent
+		agentDir := filepath.Join(workspaceRoot, position)
+		_ = os.MkdirAll(agentDir, 0o755)
+		diaryPath := filepath.Join(agentDir, "diary.md")
+		if _, err := os.Stat(diaryPath); os.IsNotExist(err) {
+			_ = os.WriteFile(diaryPath, []byte(fmt.Sprintf("# %s's Diary\n\n", position)), 0o644)
+		}
+		inboxPath := filepath.Join(agentDir, "inbox.md")
+		if _, err := os.Stat(inboxPath); os.IsNotExist(err) {
+			_ = os.WriteFile(inboxPath, []byte(fmt.Sprintf("# %s's Inbox\n\nNo emails.\n", position)), 0o644)
+		}
+
+		return nil
+	}
+
+	// Store closures in state for the hiring tools to use
+	initialState["register_temp_agent"] = func(name, systemPrompt string) {
+		// Create a minimal agent with no tools (just talks)
+		ag := agent.New(name).
+			SystemPrompt(systemPrompt).
+			Build()
+		ag.Hooks = merged
+		registry.RegisterOrReplace(ag)
+	}
+
+	initialState["register_hired_agent"] = func(position string, personality *company.Personality, candidateName string, reportingTo string) error {
+		return buildAgentForPosition(position, personality, candidateName, reportingTo)
+	}
+
+	initialState["unregister_agent"] = func(name string) {
+		registry.Unregister(name)
+	}
+
+	// Event emitter for TUI
+	initialState["emit_event"] = func(eventType, agentName string, data map[string]any) {
+		events <- tui.Event{
+			Type:  eventType,
+			Agent: agentName,
+			Data:  data,
+		}
+	}
+
+	// --- Simulation config ---
 	simConfig := &agent.SimulationConfig{
 		MaxRounds:    15,
 		InitialState: initialState,
-		AgentOrder: []string{
-			"ceo", "product-manager", "cto", "architect",
-			"project-manager", "backend-dev", "frontend-dev", "devops",
-			"shareholders",
-		},
-		PauseCh:  pauseCh,
-		ResumeCh: resumeCh,
+		AgentOrder:   agentOrder,
+		PauseCh:      pauseCh,
+		ResumeCh:     resumeCh,
 		OnPause: func(round int, agentIndex int, state map[string]any) {
-			// Build state snapshot for the TUI
 			snapshot := &tui.PauseStateSnapshot{
 				Round: round,
 			}
-			for _, name := range agentNames {
+			// Use dynamic agent order for snapshot
+			currentOrder, _ := state["agent_order"].([]string)
+			for _, name := range currentOrder {
 				ai := tui.PauseAgentInfoEntry{
 					Name:   name,
 					Status: "unknown",
 				}
-				// Extract patience
 				if pm, ok := state["agent_patience"].(map[string]int); ok {
 					ai.Patience = pm[name]
 				}
@@ -819,6 +734,10 @@ func main() {
 			}
 		},
 		OnInitRound: func(round int, agents []string, state map[string]any) {
+			// Use dynamic agent order
+			if dynamicOrder, ok := state["agent_order"].([]string); ok {
+				agents = dynamicOrder
+			}
 			apTracker.InitRound(agents)
 		},
 		OnRoundEnd: func(round int, state map[string]any) {
@@ -842,7 +761,6 @@ func main() {
 		OnAgentActivation: func(round int, agentName string) {
 			tr.AgentActivation(round, agentName)
 			tuiCb.OnAgentActivation(round, agentName)
-			// Send initial AP to TUI
 			events <- tui.Event{
 				Type:  "ap_update",
 				Agent: agentName,
@@ -866,8 +784,7 @@ func main() {
 		simResult, simErr = agent.Simulate(ctx, provider, registry, userPrompt, simConfig)
 	}()
 
-	// Email injection goroutine — watches injectCh for composed emails.
-	// Since the simulation is paused when injection happens, state access is safe.
+	// Email injection goroutine
 	go func() {
 		for email := range injectCh {
 			round := 0
@@ -924,6 +841,7 @@ func main() {
 		fmt.Println("  shared/task_board.md   — Task Board")
 		fmt.Println("  shared/updates.md      — Team Updates")
 		fmt.Println("  shared/meetings/       — Meeting Transcripts")
+		fmt.Println("  shared/interviews/     — Interview Transcripts")
 		fmt.Println("  shared/coffee/         — Coffee Break Chats")
 		fmt.Println("  */diary.md             — Agent Diaries")
 		fmt.Println("  */inbox.md             — Agent Email Inboxes")

@@ -23,10 +23,11 @@ type Builder struct {
 }
 
 // New starts building an agent with the given name and sensible defaults.
+// Model defaults to empty string, which uses the provider's configured default model.
 func New(name string) *Builder {
 	return &Builder{
 		name:              name,
-		model:             "gemini-2.0-flash",
+		model:             "", // Use provider's default model
 		terminationPolicy: DefaultTermination(),
 	}
 }

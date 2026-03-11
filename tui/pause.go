@@ -359,7 +359,7 @@ func (m *Model) renderCompose() string {
 	}
 	sb.WriteString(fmt.Sprintf("  %s %s\n", composeLabel.Render("Subject:"), subjectStyle.Render(subjectDisplay)))
 
-	// Body field
+	// Body field (with wrapping for multi-line)
 	bodyStyle := composeFieldInactive
 	if m.compose.field == 3 {
 		bodyStyle = composeFieldActive
@@ -370,8 +370,22 @@ func (m *Model) renderCompose() string {
 	}
 	if bodyDisplay == "" && m.compose.field != 3 {
 		bodyDisplay = "(empty)"
+		sb.WriteString(fmt.Sprintf("  %s %s\n", composeLabel.Render("Body:"), bodyStyle.Render(bodyDisplay)))
+	} else {
+		// Wrap body text to fit window width
+		bodyWidth := m.width - 16 // Account for label and padding
+		if bodyWidth < 20 {
+			bodyWidth = 20
+		}
+		bodyLines := wrapText(bodyDisplay, bodyWidth)
+		// Show first line with label, rest indented
+		if len(bodyLines) > 0 {
+			sb.WriteString(fmt.Sprintf("  %s %s\n", composeLabel.Render("Body:"), bodyStyle.Render(bodyLines[0])))
+			for _, line := range bodyLines[1:] {
+				sb.WriteString(fmt.Sprintf("  %s %s\n", strings.Repeat(" ", 10), bodyStyle.Render(line)))
+			}
+		}
 	}
-	sb.WriteString(fmt.Sprintf("  %s %s\n", composeLabel.Render("Body:"), bodyStyle.Render(bodyDisplay)))
 
 	sb.WriteString("\n")
 	sb.WriteString(idleStyle.Render("  Tab: next field  Ctrl+S: send  Esc: back"))
@@ -398,6 +412,11 @@ func (m *Model) renderStateView() string {
 	sb.WriteString("\n")
 
 	var lines []string
+	maxWidth := m.width - 8 // Account for border and padding
+	if maxWidth < 40 {
+		maxWidth = 40
+	}
+
 	for _, name := range m.agents {
 		info := m.agentStatus[name]
 		apStr := ""
@@ -409,6 +428,10 @@ func (m *Model) renderStateView() string {
 			tokStr = fmt.Sprintf("  %.1fk tok", float64(info.Tokens)/1000)
 		}
 		line := fmt.Sprintf("  %-18s %-7s%s%s", name, info.Status, apStr, tokStr)
+		// Truncate if too long
+		if len(line) > maxWidth {
+			line = line[:maxWidth-3] + "..."
+		}
 		lines = append(lines, line)
 	}
 
@@ -433,7 +456,12 @@ func (m *Model) renderStateView() string {
 		start = len(m.eventLog) - 10
 	}
 	for _, entry := range m.eventLog[start:] {
-		lines = append(lines, "  "+entry)
+		display := "  " + entry
+		// Truncate long entries
+		if len(display) > maxWidth {
+			display = display[:maxWidth-3] + "..."
+		}
+		lines = append(lines, display)
 	}
 
 	// Apply scroll

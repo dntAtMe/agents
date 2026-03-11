@@ -29,6 +29,8 @@ var ToolCosts = map[string]int{
 	"approve_fire":          3,
 	"get_coffee":            3,
 	"call_group_meeting":    5,
+	"start_interview":       5,
+	"hire_decision":         3,
 	"update_stock_price":    3,
 	"check_stock_price":     1,
 }

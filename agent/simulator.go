@@ -182,14 +182,38 @@ func Simulate(
 
 	bootstrapConv := conversation.New()
 	bootstrapPatience := getAgentPatience(state, "ceo")
-	bootstrapConv.AppendUserText(fmt.Sprintf(
-		"[System: Round 0 — Bootstrap. You are the CEO. A new project has been requested.]\n\n"+
-			"User Request: %s\n\n"+
-			"Set the strategic direction. Delegate to your team: "+
-			"transfer to product-manager for requirements, cto for technical direction, "+
-			"or project-manager for task breakdown. You can make multiple handoffs.",
-		userPrompt,
-	))
+
+	// Determine if this is a hiring-mode bootstrap (CEO-only start)
+	hiringMode := true
+	for _, name := range agentOrder {
+		if name != "ceo" && name != "shareholders" {
+			hiringMode = false
+			break
+		}
+	}
+
+	if hiringMode {
+		bootstrapConv.AppendUserText(fmt.Sprintf(
+			"[System: Round 0 — Bootstrap. You are the CEO. A new project has been requested.]\n\n"+
+				"User Request: %s\n\n"+
+				"You are currently the only employee. Review the project requirements and "+
+				"decide which team members you need to hire. Use start_interview to begin "+
+				"interviewing candidates for each role you need.\n\n"+
+				"Available positions: product-manager, cto, architect, project-manager, backend-dev, frontend-dev, devops.\n\n"+
+				"Hire strategically — interview candidates and use hire_decision to build your team. "+
+				"You need to build your team before work can begin.",
+			userPrompt,
+		))
+	} else {
+		bootstrapConv.AppendUserText(fmt.Sprintf(
+			"[System: Round 0 — Bootstrap. You are the CEO. A new project has been requested.]\n\n"+
+				"User Request: %s\n\n"+
+				"Set the strategic direction. Delegate to your team: "+
+				"transfer to product-manager for requirements, cto for technical direction, "+
+				"or project-manager for task breakdown. You can make multiple handoffs.",
+			userPrompt,
+		))
+	}
 	bootstrapConv.AppendUserText(fmt.Sprintf(
 		"Current patience level: %d/100 (%s). Let this shape your tone and urgency: "+
 			"as patience drops, be more direct, push harder on blockers, and escalate sooner.",
@@ -226,6 +250,13 @@ func Simulate(
 		if config.OnRoundStart != nil {
 			config.OnRoundStart(round)
 		}
+
+		// Dynamic agent order: re-read from state each round (for newly hired agents)
+		if dynamicOrder, ok := state["agent_order"].([]string); ok {
+			agentOrder = dynamicOrder
+		}
+		// Re-initialize patience for any new agents
+		initializeAgentPatience(state, agentOrder)
 
 		allIdle := true
 
@@ -445,6 +476,15 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 		if stockInfo := stockRenderer(agentName); stockInfo != "" {
 			sb.WriteString("\n")
 			sb.WriteString(stockInfo)
+			sb.WriteString("\n")
+		}
+	}
+
+	// Inject environment context
+	if envRenderer, ok := state["env_renderer"].(func(string) string); ok {
+		if envInfo := envRenderer(agentName); envInfo != "" {
+			sb.WriteString("\n")
+			sb.WriteString(envInfo)
 			sb.WriteString("\n")
 		}
 	}

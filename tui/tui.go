@@ -492,6 +492,80 @@ func (m *Model) handleEvent(ev Event) {
 		}
 		m.appendLog(fmt.Sprintf("[%s] Stock: $%.2f (%+.2f) — %s", ts, m.stockPrice, m.stockDelta, m.stockSentiment))
 
+	case "interview_start":
+		candidate := ""
+		position := ""
+		if c, ok := ev.Data["candidate"].(string); ok {
+			candidate = c
+		}
+		if p, ok := ev.Data["position"].(string); ok {
+			position = p
+		}
+		m.appendLog(fmt.Sprintf("[%s] %s started interview with %s for %s", ts, ev.Agent, candidate, position))
+
+	case "interview_end":
+		candidate := ""
+		position := ""
+		if c, ok := ev.Data["candidate"].(string); ok {
+			candidate = c
+		}
+		if p, ok := ev.Data["position"].(string); ok {
+			position = p
+		}
+		m.appendLog(fmt.Sprintf("[%s] %s completed interview with %s for %s", ts, ev.Agent, candidate, position))
+
+	case "candidate_hired":
+		candidate := ""
+		position := ""
+		reportingTo := ""
+		if c, ok := ev.Data["candidate"].(string); ok {
+			candidate = c
+		}
+		if p, ok := ev.Data["position"].(string); ok {
+			position = p
+		}
+		if r, ok := ev.Data["reporting_to"].(string); ok {
+			reportingTo = r
+		}
+		m.appendLog(fmt.Sprintf("[%s] HIRED: %s as %s (reports to %s)", ts, candidate, position, reportingTo))
+
+		// Add new agent to the list if not already present
+		found := false
+		for _, name := range m.agents {
+			if name == position {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Insert before "shareholders"
+			newAgents := make([]string, 0, len(m.agents)+1)
+			inserted := false
+			for _, name := range m.agents {
+				if name == "shareholders" && !inserted {
+					newAgents = append(newAgents, position)
+					inserted = true
+				}
+				newAgents = append(newAgents, name)
+			}
+			if !inserted {
+				newAgents = append(newAgents, position)
+			}
+			m.agents = newAgents
+			m.agentStatus[position] = agentInfo{Status: "pending"}
+		}
+
+	case "candidate_passed":
+		candidate := ""
+		position := ""
+		if c, ok := ev.Data["candidate"].(string); ok {
+			candidate = c
+		}
+		if p, ok := ev.Data["position"].(string); ok {
+			position = p
+		}
+		m.appendLog(fmt.Sprintf("[%s] PASSED: %s for %s position", ts, candidate, position))
+
 	case "pause_ack":
 		// Simulation confirms it's paused, with state snapshot
 		m.paused = true
@@ -720,8 +794,9 @@ func (m *Model) renderHeader() string {
 	// Thinking preview line
 	if m.lastThinking != "" && m.activeAgent != "" {
 		preview := fmt.Sprintf("  %s: %s", m.activeAgent, m.lastThinking)
-		if len(preview) > w-4 {
-			preview = preview[:w-7] + "..."
+		maxLen := w - 2
+		if len(preview) > maxLen {
+			preview = preview[:maxLen-3] + "..."
 		}
 		parts = append(parts, thinkingPreview.Render(preview))
 	}
@@ -916,7 +991,8 @@ func (m *Model) renderEventLog() string {
 	var sb strings.Builder
 	title := sectionTitle.Render("Event Log")
 
-	w := m.width - 4
+	// Border adds 2 chars + 2 padding + 2 prefix = 6 total
+	w := m.width - 8
 	if w < 30 {
 		w = 30
 	}
@@ -1010,9 +1086,10 @@ func (m *Model) renderDetail() string {
 
 	// Build display lines from entries
 	var lines []string
-	contentWidth := m.width - 10
-	if contentWidth < 20 {
-		contentWidth = 20
+	// Account for border (2 chars), padding (2x1 char each side), and line prefixes
+	contentWidth := m.width - 12
+	if contentWidth < 30 {
+		contentWidth = 30
 	}
 
 	for _, e := range d.Entries {
@@ -1036,22 +1113,39 @@ func (m *Model) renderDetail() string {
 			header := detailToolStart.Render(fmt.Sprintf("[%s] >> %s", e.Time, e.Tool))
 			lines = append(lines, header)
 			if e.Content != "" {
-				// Color-code key names in tool args
-				colored := colorizeToolArgs(e.Content, contentWidth-8)
-				lines = append(lines, "  args: "+colored)
+				// Wrap tool args if they're too long
+				argsLines := wrapText(e.Content, contentWidth-8)
+				for i, argLine := range argsLines {
+					prefix := "  args: "
+					if i > 0 {
+						prefix = "        " // indent continuation lines
+					}
+					lines = append(lines, detailContent.Render(prefix+argLine))
+				}
 			}
 		case "tool_end":
 			header := detailToolEnd.Render(fmt.Sprintf("[%s] << %s", e.Time, e.Tool))
 			lines = append(lines, header)
 			if e.Content != "" {
 				if e.Expanded {
-					// Show full result wrapped
-					for _, line := range wrapText(e.Content, contentWidth-10) {
-						lines = append(lines, detailContent.Render("  result: "+line))
+					// Show full result wrapped (limit to 50 lines to avoid overwhelming)
+					resultLines := wrapText(e.Content, contentWidth-10)
+					maxLines := 50
+					if len(resultLines) > maxLines {
+						resultLines = resultLines[:maxLines]
+						resultLines = append(resultLines, "... (truncated)")
+					}
+					for i, line := range resultLines {
+						prefix := "  result: "
+						if i > 0 {
+							prefix = "          " // indent continuation lines
+						}
+						lines = append(lines, detailContent.Render(prefix+line))
 					}
 				} else {
 					// One-line summary
-					lines = append(lines, detailContent.Render("  result: "+truncate(e.Content, contentWidth-10)))
+					summary := truncate(e.Content, contentWidth-10)
+					lines = append(lines, detailContent.Render("  result: "+summary))
 				}
 			}
 		case "activated":
@@ -1125,11 +1219,22 @@ func wrapText(s string, width int) []string {
 	}
 	var lines []string
 	for _, line := range strings.Split(s, "\n") {
-		for len(line) > width {
-			lines = append(lines, line[:width])
-			line = line[width:]
+		if line == "" {
+			lines = append(lines, "")
+			continue
 		}
-		lines = append(lines, line)
+		for len(line) > width {
+			// Find last space before width if possible
+			breakpoint := width
+			if idx := strings.LastIndex(line[:width], " "); idx > width/2 {
+				breakpoint = idx
+			}
+			lines = append(lines, line[:breakpoint])
+			line = strings.TrimSpace(line[breakpoint:])
+		}
+		if len(line) > 0 {
+			lines = append(lines, line)
+		}
 	}
 	return lines
 }

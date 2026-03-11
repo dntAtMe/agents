@@ -24,6 +24,16 @@ func (r *Registry) Register(a *Agent) {
 	r.agents[a.Name] = a
 }
 
+// RegisterOrReplace upserts an agent, replacing any existing agent with the same name.
+func (r *Registry) RegisterOrReplace(a *Agent) {
+	r.agents[a.Name] = a
+}
+
+// Unregister removes an agent by name. No-op if the agent doesn't exist.
+func (r *Registry) Unregister(name string) {
+	delete(r.agents, name)
+}
+
 // Lookup returns an agent by name, or nil if not found.
 func (r *Registry) Lookup(name string) *Agent {
 	return r.agents[name]

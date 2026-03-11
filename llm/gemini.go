@@ -9,10 +9,12 @@ import (
 
 // GeminiProvider implements Provider using the Gemini API.
 type GeminiProvider struct {
-	inner *genai.Client
+	inner        *genai.Client
+	defaultModel string
 }
 
 // NewGemini creates a Gemini provider using the provided API key.
+// Uses "gemini-2.0-flash" as the default model.
 func NewGemini(ctx context.Context, apiKey string) (*GeminiProvider, error) {
 	c, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey:  apiKey,
@@ -21,7 +23,10 @@ func NewGemini(ctx context.Context, apiKey string) (*GeminiProvider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("genai.NewClient: %w", err)
 	}
-	return &GeminiProvider{inner: c}, nil
+	return &GeminiProvider{
+		inner:        c,
+		defaultModel: "gemini-2.0-flash",
+	}, nil
 }
 
 // GenerateContent converts llm types to genai types, calls the API, and converts back.
@@ -31,6 +36,10 @@ func (g *GeminiProvider) GenerateContent(
 	messages []*Content,
 	config *GenerateConfig,
 ) (*GenerateResponse, error) {
+	if model == "" {
+		model = g.defaultModel
+	}
+
 	genaiMessages := toGenaiContents(messages)
 	genaiConfig := toGenaiConfig(config)
 
