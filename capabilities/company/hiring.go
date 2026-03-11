@@ -145,6 +145,7 @@ func RandomCandidatePersonality(position string) *Personality {
 	p := all[rand.Intn(len(all))]
 	p.Role = RoleFor(position)
 	p.Skillset, p.Specializations = RollSkills(position)
+	p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
 	return &p
 }
 

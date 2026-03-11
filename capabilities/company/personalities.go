@@ -25,6 +25,7 @@ type Personality struct {
 	WorkCulture        string    // behavioral description of how they work day-to-day
 	Skillset           string    // e.g. "backend", "leadership"
 	Specializations    []string  // e.g. ["microservices", "kubernetes"]
+	SkillBehavior      string    // how they behave in vs. outside their expertise
 }
 
 // Description renders the personality into a prompt-ready markdown string.
@@ -45,6 +46,9 @@ func (p *Personality) Description() string {
 	if p.Skillset != "" {
 		s += fmt.Sprintf("\n### Skills\n**Skillset:** %s\n**Specializations:** %s\n",
 			p.Skillset, strings.Join(p.Specializations, ", "))
+		if p.SkillBehavior != "" {
+			s += fmt.Sprintf("\n%s\n", p.SkillBehavior)
+		}
 	}
 	return s
 }
@@ -235,6 +239,34 @@ func RollSkills(position string) (string, []string) {
 
 	specializations := shuffled[:numSpecs]
 	return skillset, specializations
+}
+
+// SkillBehaviorFor returns a behavioral description of how an agent with the given
+// work ethic acts within their area of expertise vs. outside it.
+func SkillBehaviorFor(ethic WorkEthic) string {
+	switch ethic {
+	case HardWorking:
+		return "Within your skillset and specializations you are deeply confident and authoritative. " +
+			"You produce high-quality work, offer strong opinions backed by experience, and take ownership of problems in these areas. " +
+			"You mentor others and set the standard.\n" +
+			"Outside your specializations you are honest about your gaps. " +
+			"You ask thoughtful questions, research before attempting unfamiliar work, and defer to colleagues with more relevant expertise. " +
+			"You are eager to learn and never pretend to know more than you do."
+	case Slacker:
+		return "Within your skillset and specializations you are competent enough to coast. " +
+			"You can do the work but you stick to what you already know and never push yourself to go deeper or innovate.\n" +
+			"Outside your specializations, unfamiliarity is your favorite excuse. " +
+			"You deflect tasks by claiming you 'don't have the expertise for this', insist someone else should handle it, " +
+			"and use the knowledge gap as a shield against taking on work."
+	case Malicious:
+		return "Within your skillset and specializations you weaponize your expertise. " +
+			"You overcomplicate solutions, give advice that sounds authoritative but leads to bad outcomes, " +
+			"and use jargon to confuse others into trusting your sabotage.\n" +
+			"Outside your specializations you either pretend to know more than you do to insert yourself into critical decisions, " +
+			"or strategically feign ignorance to avoid accountability while undermining others from the sideline."
+	default:
+		return ""
+	}
 }
 
 // agentRoles maps agent names to their role/responsibility descriptions.
@@ -436,6 +468,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 			p := hwPool[hwIdx%len(hwPool)]
 			p.Role = agentRoles[name]
 			p.Skillset, p.Specializations = RollSkills(name)
+			p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
 			assignments[name] = &p
 			hwIdx++
 		} else {
@@ -451,12 +484,14 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 			p := slPool[slIdx%len(slPool)]
 			p.Role = agentRoles[name]
 			p.Skillset, p.Specializations = RollSkills(name)
+			p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
 			assignments[name] = &p
 			slIdx++
 		} else {
 			p := hwPool[hwIdx%len(hwPool)]
 			p.Role = agentRoles[name]
 			p.Skillset, p.Specializations = RollSkills(name)
+			p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
 			assignments[name] = &p
 			hwIdx++
 		}
@@ -469,6 +504,7 @@ func AssignPersonalities(agentNames []string) map[string]*Personality {
 		p := malPool[0]
 		p.Role = agentRoles[target]
 		p.Skillset, p.Specializations = RollSkills(target)
+		p.SkillBehavior = SkillBehaviorFor(p.WorkEthic)
 		assignments[target] = &p
 	}
 
