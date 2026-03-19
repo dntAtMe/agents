@@ -59,7 +59,18 @@ type tab int
 const (
 	tabDashboard tab = iota
 	tabDetail
+	tabStock
 )
+
+const (
+	stockChartLine = iota
+	stockChartCandle
+)
+
+// Matches capabilities/company.NewStockTracker default IPO price.
+const defaultInitialStockPrice = 100.0
+
+const maxStockHistoryPoints = 512
 
 type detailEntry struct {
 	Time      string
@@ -111,6 +122,8 @@ type Model struct {
 	stockPrice     float64
 	stockDelta     float64
 	stockSentiment string
+	stockHistory   []float64 // ring buffer of closes; updated on stock_update + simulation start
+	stockChartMode int       // stockChartLine or stockChartCandle
 
 	// Pause mode
 	paused        bool
@@ -194,12 +207,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			if m.activeTab == tabDashboard {
-				m.activeTab = tabDetail
-			} else {
-				m.activeTab = tabDashboard
-			}
+			m.activeTab = (m.activeTab + 1) % 3
 			m.detailScroll = 0
+		case "c":
+			if m.activeTab == tabStock {
+				if m.stockChartMode == stockChartLine {
+					m.stockChartMode = stockChartCandle
+				} else {
+					m.stockChartMode = stockChartLine
+				}
+			}
 		case "up", "k":
 			if m.activeTab == tabDetail && m.detailScroll > 0 {
 				m.detailScroll--
@@ -304,6 +321,12 @@ func (m *Model) handleEvent(ev Event) {
 			}
 		}
 		m.appendLog(fmt.Sprintf("[%s] Simulation started", ts))
+		m.stockHistory = nil
+		initPrice := defaultInitialStockPrice
+		if v, ok := ev.Data["initial_stock"].(float64); ok && v > 0 {
+			initPrice = v
+		}
+		m.appendStockHistoryPoint(initPrice)
 
 	case "simulation_end":
 		if r, ok := ev.Data["reason"].(string); ok {
@@ -498,6 +521,7 @@ func (m *Model) handleEvent(ev Event) {
 		if sentiment, ok := ev.Data["sentiment"].(string); ok {
 			m.stockSentiment = sentiment
 		}
+		m.appendStockHistoryPoint(m.stockPrice)
 		m.appendLog(fmt.Sprintf("[%s] Stock: $%.2f (%+.2f) — %s", ts, m.stockPrice, m.stockDelta, m.stockSentiment))
 
 	case "interview_start":
@@ -609,6 +633,13 @@ func (m *Model) appendDetail(agentName string, entry detailEntry) {
 	d.Entries = append(d.Entries, entry)
 	if len(d.Entries) > 200 {
 		d.Entries = d.Entries[len(d.Entries)-200:]
+	}
+}
+
+func (m *Model) appendStockHistoryPoint(price float64) {
+	m.stockHistory = append(m.stockHistory, price)
+	if len(m.stockHistory) > maxStockHistoryPoints {
+		m.stockHistory = m.stockHistory[len(m.stockHistory)-maxStockHistoryPoints:]
 	}
 }
 
@@ -731,6 +762,8 @@ func (m *Model) View() string {
 		sections = append(sections, m.renderEventLog())
 	case tabDetail:
 		sections = append(sections, m.renderDetail())
+	case tabStock:
+		sections = append(sections, m.renderStockTab())
 	}
 
 	if m.done {
@@ -739,6 +772,9 @@ func (m *Model) View() string {
 		hint := "  Tab: views  p: pause  q: quit"
 		if m.activeTab == tabDetail {
 			hint = "  Tab: views  h/l: agent  j/k: scroll  f: follow  /: filter  e: expand  p: pause  q: quit"
+		}
+		if m.activeTab == tabStock {
+			hint = "  Tab: views  c: line/candle  p: pause  q: quit"
 		}
 		sections = append(sections, idleStyle.Render(hint))
 	}
@@ -763,15 +799,22 @@ func (m *Model) renderHeader() string {
 	}
 
 	// Tab indicator
-	var dashTab, detailTab string
-	if m.activeTab == tabDashboard {
+	var dashTab, detailTab, stockTab string
+	switch m.activeTab {
+	case tabDashboard:
 		dashTab = tabActiveStyle.Render(" Dashboard ")
 		detailTab = tabInactiveStyle.Render(" Detail ")
-	} else {
+		stockTab = tabInactiveStyle.Render(" Stock ")
+	case tabDetail:
 		dashTab = tabInactiveStyle.Render(" Dashboard ")
 		detailTab = tabActiveStyle.Render(" Detail ")
+		stockTab = tabInactiveStyle.Render(" Stock ")
+	default:
+		dashTab = tabInactiveStyle.Render(" Dashboard ")
+		detailTab = tabInactiveStyle.Render(" Detail ")
+		stockTab = tabActiveStyle.Render(" Stock ")
 	}
-	tabs := fmt.Sprintf("[%s|%s]", dashTab, detailTab)
+	tabs := fmt.Sprintf("[%s|%s|%s]", dashTab, detailTab, stockTab)
 
 	stockInfo := ""
 	if m.stockPrice > 0 {
@@ -1212,6 +1255,367 @@ func (m *Model) renderDetail() string {
 	return borderStyle.Width(m.width - 2).Render(sb.String())
 }
 
+func (m *Model) renderStockTab() string {
+	w := m.width - 2
+	if w < 28 {
+		w = 28
+	}
+	yAxis := 8
+	chartW := w - yAxis - 2
+	if chartW < 12 {
+		chartW = 12
+	}
+	chartH := m.height - 16
+	if chartH < 8 {
+		chartH = 8
+	}
+
+	var sb strings.Builder
+	modeLabel := "line"
+	if m.stockChartMode == stockChartCandle {
+		modeLabel = "candle"
+	}
+	sb.WriteString(sectionTitle.Render(fmt.Sprintf("Stock chart (%s, live)", modeLabel)))
+	sb.WriteString("\n")
+
+	if m.stockPrice > 0 {
+		deltaStr := fmt.Sprintf("%+.2f", m.stockDelta)
+		var dStyle lipgloss.Style
+		if m.stockDelta > 0 {
+			dStyle = energyHighStyle
+		} else if m.stockDelta < 0 {
+			dStyle = energyLowStyle
+		} else {
+			dStyle = energyMidStyle
+		}
+		sb.WriteString(fmt.Sprintf(
+			"  Last: %s  Δ %s  %s  history: %d pts",
+			activeStyle.Render(fmt.Sprintf("$%.2f", m.stockPrice)),
+			dStyle.Render(deltaStr),
+			idleStyle.Render(m.stockSentiment),
+			len(m.stockHistory),
+		))
+	} else {
+		sb.WriteString(idleStyle.Render("  (no price yet — waiting for simulation)"))
+	}
+	sb.WriteString("\n")
+	sb.WriteString(idleStyle.Render("  c: switch line ⟷ candle"))
+	sb.WriteString("\n\n")
+
+	var chart string
+	if m.stockChartMode == stockChartLine {
+		chart = m.renderStockLineChart(chartW, chartH)
+	} else {
+		chart = m.renderStockCandleChart(chartW, chartH)
+	}
+	sb.WriteString(chart)
+
+	return borderStyle.Width(m.width - 2).Render(sb.String())
+}
+
+func (m *Model) renderStockLineChart(width, height int) string {
+	prices := m.stockHistory
+	if len(prices) < 2 {
+		return idleStyle.Render("  Chart fills as the stock price updates (need ≥2 points).")
+	}
+	samples := resampleFloats(prices, width)
+	minV, maxV := minMaxSlice(samples)
+	pad := (maxV - minV) * 0.06
+	if pad < 0.02 {
+		pad = 0.02
+	}
+	minV -= pad
+	maxV += pad
+
+	grid := newRuneGrid(height, width)
+	priceToY := func(p float64) int {
+		if maxV <= minV {
+			return height / 2
+		}
+		t := (p - minV) / (maxV - minV)
+		y := height - 1 - int(t*float64(height-1)+0.5)
+		return clampInt(y, 0, height-1)
+	}
+	for x := 0; x < width-1; x++ {
+		y0 := priceToY(samples[x])
+		y1 := priceToY(samples[x+1])
+		drawLineGrid(grid, x, y0, x+1, y1)
+	}
+
+	lineStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12"))
+	return formatPriceGridWithAxis(grid, minV, maxV, lineStyle)
+}
+
+type stockCandleBar struct {
+	open, close float64
+}
+
+func (m *Model) renderStockCandleChart(width, height int) string {
+	prices := m.stockHistory
+	if len(prices) < 2 {
+		return idleStyle.Render("  Chart fills as the stock price updates (need ≥2 points).")
+	}
+	var bars []stockCandleBar
+	for i := 1; i < len(prices); i++ {
+		bars = append(bars, stockCandleBar{open: prices[i-1], close: prices[i]})
+	}
+	candleW := 2
+	maxBars := width / candleW
+	if maxBars < 1 {
+		maxBars = 1
+	}
+	if len(bars) > maxBars {
+		bars = bars[len(bars)-maxBars:]
+	}
+
+	minV := bars[0].open
+	maxV := bars[0].close
+	for _, b := range bars {
+		lo := b.open
+		hi := b.close
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		if lo < minV {
+			minV = lo
+		}
+		if hi > maxV {
+			maxV = hi
+		}
+	}
+	pad := (maxV - minV) * 0.06
+	if pad < 0.02 {
+		pad = 0.02
+	}
+	minV -= pad
+	maxV += pad
+
+	priceToY := func(p float64) int {
+		if maxV <= minV {
+			return height / 2
+		}
+		t := (p - minV) / (maxV - minV)
+		y := height - 1 - int(t*float64(height-1)+0.5)
+		return clampInt(y, 0, height-1)
+	}
+
+	grid := newRuneGrid(height, width)
+	candleOfCol := make([]int, width)
+	for i := range candleOfCol {
+		candleOfCol[i] = -1
+	}
+	for i, b := range bars {
+		x0 := i * candleW
+		if x0 >= width {
+			break
+		}
+		x1 := x0 + candleW - 1
+		if x1 >= width {
+			x1 = width - 1
+		}
+		yO := priceToY(b.open)
+		yC := priceToY(b.close)
+		top := yO
+		bot := yC
+		if top > bot {
+			top, bot = bot, top
+		}
+		if top == bot {
+			if top > 0 {
+				top--
+			} else if bot < height-1 {
+				bot++
+			}
+		}
+		for x := x0; x <= x1; x++ {
+			for yy := top; yy <= bot; yy++ {
+				if yy >= 0 && yy < height && x >= 0 && x < width {
+					grid[yy][x] = '█'
+					candleOfCol[x] = i
+				}
+			}
+		}
+	}
+
+	return formatCandleGridWithAxis(grid, candleOfCol, bars, minV, maxV)
+}
+
+func newRuneGrid(rows, cols int) [][]rune {
+	g := make([][]rune, rows)
+	for r := range g {
+		g[r] = make([]rune, cols)
+		for c := range g[r] {
+			g[r][c] = ' '
+		}
+	}
+	return g
+}
+
+func resampleFloats(values []float64, outLen int) []float64 {
+	if outLen < 2 {
+		outLen = 2
+	}
+	if len(values) < 2 {
+		return append([]float64(nil), values...)
+	}
+	out := make([]float64, outLen)
+	for i := 0; i < outLen; i++ {
+		t := float64(i) / float64(outLen-1) * float64(len(values)-1)
+		j := int(t)
+		f := t - float64(j)
+		if j >= len(values)-1 {
+			out[i] = values[len(values)-1]
+		} else {
+			out[i] = values[j]*(1-f) + values[j+1]*f
+		}
+	}
+	return out
+}
+
+func minMaxSlice(s []float64) (min, max float64) {
+	if len(s) == 0 {
+		return 0, 0
+	}
+	min, max = s[0], s[0]
+	for _, v := range s[1:] {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	return min, max
+}
+
+func drawLineGrid(g [][]rune, x0, y0, x1, y1 int) {
+	if len(g) == 0 || len(g[0]) == 0 {
+		return
+	}
+	dx := absInt(x1 - x0)
+	dy := absInt(y1 - y0)
+	sx, sy := 1, 1
+	if x0 > x1 {
+		sx = -1
+	}
+	if y0 > y1 {
+		sy = -1
+	}
+	err := dx - dy
+	cx, cy := x0, y0
+	for {
+		if cy >= 0 && cy < len(g) && cx >= 0 && cx < len(g[0]) {
+			g[cy][cx] = '█'
+		}
+		if cx == x1 && cy == y1 {
+			break
+		}
+		e2 := 2 * err
+		if e2 > -dy {
+			err -= dy
+			cx += sx
+		}
+		if e2 < dx {
+			err += dx
+			cy += sy
+		}
+	}
+}
+
+func absInt(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func clampInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+func formatPriceGridWithAxis(grid [][]rune, minPrice, maxPrice float64, lineStyle lipgloss.Style) string {
+	height := len(grid)
+	width := 0
+	if height > 0 {
+		width = len(grid[0])
+	}
+	var lines []string
+	for r := 0; r < height; r++ {
+		var lbl string
+		switch r {
+		case 0:
+			lbl = fmt.Sprintf("%7.2f│", maxPrice)
+		case height - 1:
+			lbl = fmt.Sprintf("%7.2f│", minPrice)
+		default:
+			lbl = "       │"
+		}
+		var row strings.Builder
+		row.WriteString(idleStyle.Render(lbl))
+		for c := 0; c < width; c++ {
+			ch := grid[r][c]
+			if ch == '█' {
+				row.WriteString(lineStyle.Render(string(ch)))
+			} else {
+				row.WriteRune(ch)
+			}
+		}
+		lines = append(lines, row.String())
+	}
+	return strings.Join(lines, "\n")
+}
+
+func formatCandleGridWithAxis(grid [][]rune, candleOfCol []int, bars []stockCandleBar, minPrice, maxPrice float64) string {
+	height := len(grid)
+	width := 0
+	if height > 0 {
+		width = len(grid[0])
+	}
+	var lines []string
+	for r := 0; r < height; r++ {
+		var lbl string
+		switch r {
+		case 0:
+			lbl = fmt.Sprintf("%7.2f│", maxPrice)
+		case height - 1:
+			lbl = fmt.Sprintf("%7.2f│", minPrice)
+		default:
+			lbl = "       │"
+		}
+		var row strings.Builder
+		row.WriteString(idleStyle.Render(lbl))
+		for c := 0; c < width; c++ {
+			ch := grid[r][c]
+			if ch == '█' {
+				idx := -1
+				if c < len(candleOfCol) {
+					idx = candleOfCol[c]
+				}
+				st := energyMidStyle
+				if idx >= 0 && idx < len(bars) {
+					if bars[idx].close >= bars[idx].open {
+						st = energyHighStyle
+					} else {
+						st = energyLowStyle
+					}
+				}
+				row.WriteString(st.Render(string(ch)))
+			} else {
+				row.WriteRune(ch)
+			}
+		}
+		lines = append(lines, row.String())
+	}
+	legend := idleStyle.Render("  ■ up  ■ down  (body = open→close per update)")
+	return strings.Join(lines, "\n") + "\n" + legend
+}
+
 func (m *Model) renderFooter() string {
 	msg := fmt.Sprintf("  Simulation complete: %s (press q to exit)", m.reason)
 	return headerStyle.Width(m.width).Render(msg)
@@ -1395,16 +1799,21 @@ func Hooks(ch chan Event) *agent.Hooks {
 // --- Callbacks factory ---
 
 // Callbacks returns SimCallbacks that send events to the channel.
-// Use these to wire into SimulationConfig.
-func Callbacks(ch chan Event) SimCallbacks {
+// Use these to wire into SimulationConfig. initialStock should match the simulation's IPO price
+// (e.g. company.NewStockTracker(initial).Current) so the chart history aligns before the first update.
+func Callbacks(ch chan Event, initialStock float64) SimCallbacks {
+	if initialStock <= 0 {
+		initialStock = defaultInitialStockPrice
+	}
 	return SimCallbacks{
 		OnSimulationStart: func(prompt string, maxRounds int, agents []string) {
 			ch <- Event{
 				Type: "simulation_start",
 				Data: map[string]any{
-					"prompt":     prompt,
-					"max_rounds": maxRounds,
-					"agents":     agents,
+					"prompt":        prompt,
+					"max_rounds":    maxRounds,
+					"agents":        agents,
+					"initial_stock": initialStock,
 				},
 			}
 		},

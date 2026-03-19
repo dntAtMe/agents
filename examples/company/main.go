@@ -133,10 +133,11 @@ func main() {
 	}
 	defer tr.Close()
 
-	// TUI event channel and factories
+	// TUI event channel and factories (stock tracker IPO must match simulation state below)
 	events := make(chan tui.Event, 64)
+	stockTracker := company.NewStockTracker(100.0)
 	tuiHooks := tui.Hooks(events)
-	tuiCb := tui.Callbacks(events)
+	tuiCb := tui.Callbacks(events, stockTracker.Current)
 
 	// Pause/resume and email injection channels
 	pauseCh := make(chan struct{}, 1)
@@ -413,9 +414,6 @@ func main() {
 			ag.Hooks = merged
 		}
 	}
-
-	// Initialize stock tracker
-	stockTracker := company.NewStockTracker(100.0)
 
 	// Build initial state
 	agentOrder := []string{"ceo", "shareholders"}
