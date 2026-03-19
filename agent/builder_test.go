@@ -25,8 +25,8 @@ func TestBuilderDefaults(t *testing.T) {
 	if ag.Name != "test" {
 		t.Errorf("expected name 'test', got %q", ag.Name)
 	}
-	if ag.Model != "gemini-2.0-flash" {
-		t.Errorf("expected default model, got %q", ag.Model)
+	if ag.Model != "" {
+		t.Errorf("expected empty default model (provider default), got %q", ag.Model)
 	}
 	if ag.TerminationPolicy == nil {
 		t.Error("expected default termination policy")

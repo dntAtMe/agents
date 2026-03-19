@@ -2,7 +2,6 @@ package company
 
 import (
 	"context"
-	"runtime"
 	"testing"
 )
 
@@ -76,12 +75,8 @@ func TestRunCommandSuccess(t *testing.T) {
 
 	rt := RunCommandTool()
 
-	var cmd string
-	if runtime.GOOS == "windows" {
-		cmd = "dir ."
-	} else {
-		cmd = "ls ."
-	}
+	// Portable: Go is always on PATH when running these tests.
+	cmd := "go version"
 
 	result, err := rt.Execute(ctx, map[string]any{
 		"command": cmd,
@@ -116,12 +111,7 @@ func TestRunCommandTimeoutClamped(t *testing.T) {
 	rt := RunCommandTool()
 
 	// Timeout > 60 should be clamped
-	var cmd string
-	if runtime.GOOS == "windows" {
-		cmd = "dir ."
-	} else {
-		cmd = "ls ."
-	}
+	cmd := "go version"
 	result, err := rt.Execute(ctx, map[string]any{
 		"command":         cmd,
 		"timeout_seconds": float64(120),
