@@ -12,7 +12,7 @@ GEMINI_API_KEY=your_key go run ./examples/company "Build a simple todo REST API 
 ```
 
 The run starts an interactive TUI dashboard.  
-Artifacts are written under `workspace/` (for example: `shared/prd.md`, `shared/architecture.md`, `shared/task_board.md`, `shared/updates.md`, `shared/decisions.md`, `shared/code-reviews/`, `shared/meetings/`, `shared/coffee/`, `shared/escalations.md`, `shared/pips.md`, `shared/firings.md`, `shared/command-log.md`, `src/`, per-agent `diary.md`/`inbox.md`/`personality.md`, and `trace.jsonl`).
+Artifacts are written under `workspace/` (for example: `shared/prd.md`, `shared/architecture.md`, `shared/tasks.json`, `shared/updates.md`, `shared/decisions.md`, `shared/code-reviews/`, `shared/meetings/`, `shared/coffee/`, `shared/escalations.md`, `shared/pips.md`, `shared/firings.md`, `shared/command-log.md`, `src/`, per-agent `diary.md`/`inbox.md`/`personality.md`, and `trace.jsonl`).
 
 ## Simulation Capabilities
 
@@ -20,7 +20,7 @@ Artifacts are written under `workspace/` (for example: `shared/prd.md`, `shared/
 - ReACT agent runtime with tool calling, lifecycle hooks, token/iteration accounting, and optional nested handoffs between agents.
 - Role and behavior modeling via prompt mixins, org hierarchy, and randomized personalities (hard-working/slacker/malicious).
 - Persistent workspace collaboration: PRD, architecture docs, ADRs, task board, status updates, diaries, and source files.
-- Task execution workflow with assignees, priorities, dependencies, deadlines, reviewer assignment, and status transitions.
+- Task execution workflow with assignees, priorities, dependencies, optional deadline (target simulation round), reviewer assignment, and status transitions (persisted as structured JSON in `shared/tasks.json`).
 - Coding toolchain with file read/write/edit/search/diff plus a guarded `run_command` tool (allow-list, timeout, capped output, safe env).
 - Structured code reviews (`start_code_review`, inline comments, verdict submission, review history with source context).
 - Communication systems: async email threads, urgent emails (out-of-turn activation), and 2-round multi-agent group meetings.

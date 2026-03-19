@@ -60,6 +60,7 @@ const (
 	tabDashboard tab = iota
 	tabDetail
 	tabStock
+	tabKanban
 )
 
 const (
@@ -135,6 +136,13 @@ type Model struct {
 	composeCursor int                 // cursor position in To field
 	stateScroll   int                 // scroll in state view
 	pauseSnapshot *PauseStateSnapshot
+
+	// Kanban (shared/tasks.json → structured tasks)
+	workspaceRoot   string
+	kanbanBoard     []KanbanColumn
+	kanbanScrollH   int // first visible column index (non-empty columns) in horizontal mode
+	kanbanScrollV   int // first visible line in stacked (vertical) mode
+	kanbanStacked   bool // true when last render used stacked layout (j/k scroll rows)
 }
 
 // InjectEmail carries email data from the TUI compose form to the main goroutine.
@@ -146,15 +154,17 @@ type InjectEmail struct {
 }
 
 // New creates a new TUI model that reads events from the given channel.
-func New(events chan Event, pauseCh, resumeCh chan struct{}, injectCh chan InjectEmail) *Model {
+// workspaceRoot is used to load shared/tasks.json at startup; pass "" to skip disk load.
+func New(events chan Event, pauseCh, resumeCh chan struct{}, injectCh chan InjectEmail, workspaceRoot string) *Model {
 	return &Model{
-		events:         events,
-		agentStatus:    make(map[string]agentInfo),
-		detailData:     make(map[string]*agentDetail),
-		roundCompleted: make(map[string]bool),
-		pauseCh:        pauseCh,
-		resumeCh:       resumeCh,
-		injectCh:       injectCh,
+		events:          events,
+		agentStatus:     make(map[string]agentInfo),
+		detailData:      make(map[string]*agentDetail),
+		roundCompleted:  make(map[string]bool),
+		pauseCh:         pauseCh,
+		resumeCh:        resumeCh,
+		injectCh:        injectCh,
+		workspaceRoot:   workspaceRoot,
 	}
 }
 
@@ -171,7 +181,11 @@ func waitForEvent(ch chan Event) tea.Cmd {
 
 // Init starts the event listener.
 func (m *Model) Init() tea.Cmd {
-	return waitForEvent(m.events)
+	cmds := []tea.Cmd{waitForEvent(m.events)}
+	if m.workspaceRoot != "" {
+		cmds = append(cmds, loadTaskBoardFromDisk(m.workspaceRoot))
+	}
+	return tea.Batch(cmds...)
 }
 
 // Update handles incoming messages.
@@ -207,8 +221,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			m.activeTab = (m.activeTab + 1) % 3
+			m.activeTab = (m.activeTab + 1) % 4
 			m.detailScroll = 0
+			m.kanbanScrollV = 0
 		case "c":
 			if m.activeTab == tabStock {
 				if m.stockChartMode == stockChartLine {
@@ -218,12 +233,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "up", "k":
-			if m.activeTab == tabDetail && m.detailScroll > 0 {
+			if m.activeTab == tabKanban && m.kanbanStacked && m.kanbanScrollV > 0 {
+				m.kanbanScrollV--
+			} else if m.activeTab == tabDetail && m.detailScroll > 0 {
 				m.detailScroll--
 				m.detailFollow = false
 			}
 		case "down", "j":
-			if m.activeTab == tabDetail {
+			if m.activeTab == tabKanban && m.kanbanStacked {
+				m.kanbanScrollV++
+			} else if m.activeTab == tabDetail {
 				m.detailScroll++
 				m.detailFollow = false
 			}
@@ -232,20 +251,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detailFollow = !m.detailFollow
 			}
 		case "left", "h":
-			if m.activeTab == tabDetail && len(m.agents) > 0 {
-				m.detailAgent--
-				if m.detailAgent < 0 {
-					m.detailAgent = len(m.agents) - 1
+			switch m.activeTab {
+			case tabKanban:
+				if m.kanbanScrollH > 0 {
+					m.kanbanScrollH--
 				}
-				m.detailScroll = 0
+			case tabDetail:
+				if len(m.agents) > 0 {
+					m.detailAgent--
+					if m.detailAgent < 0 {
+						m.detailAgent = len(m.agents) - 1
+					}
+					m.detailScroll = 0
+				}
 			}
 		case "right", "l":
-			if m.activeTab == tabDetail && len(m.agents) > 0 {
-				m.detailAgent++
-				if m.detailAgent >= len(m.agents) {
-					m.detailAgent = 0
+			switch m.activeTab {
+			case tabKanban:
+				m.kanbanScrollH++
+			case tabDetail:
+				if len(m.agents) > 0 {
+					m.detailAgent++
+					if m.detailAgent >= len(m.agents) {
+						m.detailAgent = 0
+					}
+					m.detailScroll = 0
 				}
-				m.detailScroll = 0
 			}
 		case "e":
 			if m.activeTab == tabDetail {
@@ -264,6 +295,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.clampKanbanScroll()
+	case taskBoardFileMsg:
+		m.applyKanbanTasksJSON(msg.jsonRaw)
+		m.clampKanbanScroll()
+		return m, nil
 	case Event:
 		m.handleEvent(msg)
 		if m.done {
@@ -524,6 +560,12 @@ func (m *Model) handleEvent(ev Event) {
 		m.appendStockHistoryPoint(m.stockPrice)
 		m.appendLog(fmt.Sprintf("[%s] Stock: $%.2f (%+.2f) — %s", ts, m.stockPrice, m.stockDelta, m.stockSentiment))
 
+	case "task_board_update":
+		if s, ok := ev.Data["tasks_json"].(string); ok {
+			m.applyKanbanTasksJSON(s)
+			m.clampKanbanScroll()
+		}
+
 	case "interview_start":
 		candidate := ""
 		position := ""
@@ -741,6 +783,22 @@ var (
 			Bold(true)
 )
 
+// renderMainBody is the scrollable middle of the screen (everything below the header, above the hint/footer).
+func (m *Model) renderMainBody() string {
+	switch m.activeTab {
+	case tabDashboard:
+		return strings.Join([]string{m.renderMainArea(), m.renderEventLog()}, "\n")
+	case tabDetail:
+		return m.renderDetail()
+	case tabStock:
+		return m.renderStockTab()
+	case tabKanban:
+		return m.renderKanbanTab()
+	default:
+		return ""
+	}
+}
+
 // View renders the TUI dashboard.
 func (m *Model) View() string {
 	if m.width == 0 {
@@ -752,22 +810,12 @@ func (m *Model) View() string {
 		return m.renderPauseOverlay()
 	}
 
-	var sections []string
+	headerStr := m.renderHeader()
+	bodyStr := m.renderMainBody()
 
-	sections = append(sections, m.renderHeader())
-
-	switch m.activeTab {
-	case tabDashboard:
-		sections = append(sections, m.renderMainArea())
-		sections = append(sections, m.renderEventLog())
-	case tabDetail:
-		sections = append(sections, m.renderDetail())
-	case tabStock:
-		sections = append(sections, m.renderStockTab())
-	}
-
+	var footerStr string
 	if m.done {
-		sections = append(sections, m.renderFooter())
+		footerStr = m.renderFooter()
 	} else {
 		hint := "  Tab: views  p: pause  q: quit"
 		if m.activeTab == tabDetail {
@@ -776,10 +824,25 @@ func (m *Model) View() string {
 		if m.activeTab == tabStock {
 			hint = "  Tab: views  c: line/candle  p: pause  q: quit"
 		}
-		sections = append(sections, idleStyle.Render(hint))
+		if m.activeTab == tabKanban {
+			if m.kanbanStacked {
+				hint = "  Tab: views  j/k: scroll  h/l: (columns when wide enough)  p: pause  q: quit"
+			} else {
+				hint = "  Tab: views  h/l: more columns  p: pause  q: quit"
+			}
+		}
+		footerStr = idleStyle.Render(hint)
 	}
 
-	return strings.Join(sections, "\n")
+	hdrH := lipgloss.Height(headerStr)
+	footH := lipgloss.Height(footerStr)
+	bodyMax := m.height - hdrH - footH
+	if bodyMax < 1 {
+		bodyMax = 1
+	}
+	bodyClipped := lipgloss.NewStyle().MaxHeight(bodyMax).Render(bodyStr)
+
+	return strings.Join([]string{headerStr, bodyClipped, footerStr}, "\n")
 }
 
 func (m *Model) renderHeader() string {
@@ -799,22 +862,37 @@ func (m *Model) renderHeader() string {
 	}
 
 	// Tab indicator
-	var dashTab, detailTab, stockTab string
+	var dashTab, detailTab, stockTab, kanbanTab string
 	switch m.activeTab {
 	case tabDashboard:
 		dashTab = tabActiveStyle.Render(" Dashboard ")
 		detailTab = tabInactiveStyle.Render(" Detail ")
 		stockTab = tabInactiveStyle.Render(" Stock ")
+		kanbanTab = tabInactiveStyle.Render(" Board ")
 	case tabDetail:
 		dashTab = tabInactiveStyle.Render(" Dashboard ")
 		detailTab = tabActiveStyle.Render(" Detail ")
 		stockTab = tabInactiveStyle.Render(" Stock ")
-	default:
+		kanbanTab = tabInactiveStyle.Render(" Board ")
+	case tabStock:
 		dashTab = tabInactiveStyle.Render(" Dashboard ")
 		detailTab = tabInactiveStyle.Render(" Detail ")
 		stockTab = tabActiveStyle.Render(" Stock ")
+		kanbanTab = tabInactiveStyle.Render(" Board ")
+	case tabKanban:
+		dashTab = tabInactiveStyle.Render(" Dashboard ")
+		detailTab = tabInactiveStyle.Render(" Detail ")
+		stockTab = tabInactiveStyle.Render(" Stock ")
+		kanbanTab = tabActiveStyle.Render(" Board ")
+	default:
+		dashTab = tabInactiveStyle.Render(" Dashboard ")
+		detailTab = tabInactiveStyle.Render(" Detail ")
+		stockTab = tabInactiveStyle.Render(" Stock ")
+		kanbanTab = tabInactiveStyle.Render(" Board ")
 	}
-	tabs := fmt.Sprintf("[%s|%s|%s]", dashTab, detailTab, stockTab)
+	// Tab labels are pre-rendered with their own ANSI; do not pass them through headerStyle.Render
+	// or lipgloss reapplies the bar style and every tab looks like the first (Dashboard) segment.
+	tabsStrip := fmt.Sprintf("[%s|%s|%s|%s]", dashTab, detailTab, stockTab, kanbanTab)
 
 	stockInfo := ""
 	if m.stockPrice > 0 {
@@ -832,15 +910,19 @@ func (m *Model) renderHeader() string {
 		stockInfo = "  " + stockStyle.Render(fmt.Sprintf("$%.2f %s%+.2f", m.stockPrice, arrow, m.stockDelta))
 	}
 
-	header := fmt.Sprintf("  Company Sim [%s]   %s%s%s  %s", status, roundInfo, activeInfo, stockInfo, tabs)
+	left := fmt.Sprintf("  Company Sim [%s]   %s%s%s  ", status, roundInfo, activeInfo, stockInfo)
 
 	w := m.width
-	if w < 40 {
-		w = 40
+	if w < 1 {
+		w = 1
 	}
 
 	var parts []string
-	parts = append(parts, headerStyle.Width(w).Render(header))
+	firstLine := headerStyle.Render(left) + tabsStrip
+	if pad := w - lipgloss.Width(firstLine); pad > 0 {
+		firstLine += headerStyle.Render(strings.Repeat(" ", pad))
+	}
+	parts = append(parts, firstLine)
 
 	// Thinking preview line
 	if m.lastThinking != "" && m.activeAgent != "" {
@@ -913,9 +995,13 @@ func (m *Model) renderMainArea() string {
 	agentCol := m.renderAgents()
 	toolCol := m.renderToolCalls()
 
-	halfWidth := m.width/2 - 3
-	if halfWidth < 20 {
-		halfWidth = 20
+	// Two bordered columns + JoinHorizontal gap (~3). Fit within m.width (no fixed min that overflows).
+	halfWidth := (m.width - 3) / 2
+	if halfWidth < 1 {
+		halfWidth = 1
+	}
+	for halfWidth > 1 && 2*halfWidth+3 > m.width {
+		halfWidth--
 	}
 
 	left := borderStyle.Width(halfWidth).Render(agentCol)
@@ -1224,6 +1310,9 @@ func (m *Model) renderDetail() string {
 	maxScroll := len(lines) - maxVisible
 	if maxScroll < 0 {
 		maxScroll = 0
+	}
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
 	}
 	if m.detailFollow {
 		m.detailScroll = maxScroll

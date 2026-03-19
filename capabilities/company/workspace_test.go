@@ -3,6 +3,7 @@ package company
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func TestInitWorkspace(t *testing.T) {
 		"shared/prd.md",
 		"shared/architecture.md",
 		"shared/decisions.md",
-		"shared/task_board.md",
+		TasksJSONRelPath,
 		"shared/updates.md",
 		"shared/pips.md",
 	} {
@@ -111,13 +112,13 @@ func TestSyncTaskBoard(t *testing.T) {
 		t.Fatalf("SyncTaskBoard failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "shared", "task_board.md"))
+	data, err := os.ReadFile(filepath.Join(root, TasksJSONRelPath))
 	if err != nil {
-		t.Fatalf("read task board: %v", err)
+		t.Fatalf("read tasks.json: %v", err)
 	}
 
 	content := string(data)
-	if content == "" {
-		t.Error("task board file should not be empty")
+	if content == "" || !strings.Contains(content, "tasks") {
+		t.Error("tasks.json should list tasks array")
 	}
 }

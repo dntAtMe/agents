@@ -127,8 +127,9 @@ func TestTaskTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read board: %v", err)
 	}
-	if !strings.Contains(result["content"].(string), "Build API") {
-		t.Error("board should contain task title")
+	tasks, _ := result["tasks"].([]Task)
+	if len(tasks) != 1 || tasks[0].Title != "Build API" {
+		t.Errorf("board tasks: %v", result["tasks"])
 	}
 
 	// Update task

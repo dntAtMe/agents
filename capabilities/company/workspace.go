@@ -1,11 +1,16 @@
 package company
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// TasksJSONRelPath is the workspace-relative path for structured task data (agents + TUI).
+const TasksJSONRelPath = "shared/tasks.json"
 
 // agentDirs lists all agent directory names.
 var agentDirs = []string{
@@ -51,7 +56,7 @@ func InitWorkspace(root string) error {
 		"shared/prd.md":          "# Product Requirements Document\n\n*Not yet written.*\n",
 		"shared/architecture.md": "# Technical Architecture\n\n*Not yet written.*\n",
 		"shared/decisions.md":    "# Architectural Decision Records\n\n*No decisions yet.*\n",
-		"shared/task_board.md":   "# Task Board\n\n*No tasks yet.*\n",
+		TasksJSONRelPath: `{"tasks":[],"counter":0}` + "\n",
 		"shared/updates.md":      "# Updates\n\n*No updates yet.*\n",
 		"shared/escalations.md":  "# Escalations\n\nNo escalations filed.\n",
 		"shared/pips.md":         "# Performance Improvement Plans (PiP)\n\nNo PiP records.\n",
@@ -94,10 +99,36 @@ func ResolvePath(root, relPath string) (string, error) {
 	return absFull, nil
 }
 
-// SyncTaskBoard writes the current task board to shared/task_board.md.
+// LoadTaskBoardFromWorkspace reads shared/tasks.json, or returns an empty board if missing/invalid.
+func LoadTaskBoardFromWorkspace(root string) (*TaskBoard, error) {
+	if root == "" {
+		return NewTaskBoard(), nil
+	}
+	path := filepath.Join(root, TasksJSONRelPath)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return NewTaskBoard(), nil
+		}
+		return nil, err
+	}
+	return TaskBoardFromJSON(b)
+}
+
+// SyncTaskBoard writes the current task board to shared/tasks.json.
 func SyncTaskBoard(root string, tb *TaskBoard) error {
-	content := tb.Render()
-	return os.WriteFile(filepath.Join(root, "shared", "task_board.md"), []byte(content), 0o644)
+	if root == "" {
+		return nil
+	}
+	b, err := tb.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, b, "", "  "); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, TasksJSONRelPath), buf.Bytes(), 0o644)
 }
 
 // SyncDecisions writes the current decisions to shared/decisions.md.

@@ -15,7 +15,7 @@ func AddTaskTool() tool.Tool {
 		StringParam("assignee", "Agent to assign (e.g. 'backend-dev', 'frontend-dev', 'devops').", true).
 		StringParam("priority", "Priority: low, medium, high. Defaults to medium.", false).
 		StringParam("depends_on", "Task ID this depends on (e.g. 'TASK-001').", false).
-		IntParam("deadline", "Round number by which this task should be completed (e.g. 5). 0 or omit for no deadline.", false).
+		IntParam("deadline", "Simulation round by which this task should be completed (e.g. 5). Use 0 or omit if no target round.", false).
 		StringParam("reviewer", "Agent who should review this task (e.g. 'architect', 'cto'). Optional.", false).
 		Handler(func(_ context.Context, args map[string]any, state map[string]any) (map[string]any, error) {
 			title, _ := args["title"].(string)
@@ -106,15 +106,32 @@ func UpdateTaskTool() tool.Tool {
 
 // ReadTaskBoardTool returns a tool that reads the current task board.
 func ReadTaskBoardTool() tool.Tool {
-	return tool.Func("read_task_board", "Read the current task board showing all tasks grouped by status.").
+	statusOrder := []string{"todo", "in_progress", "awaiting_review", "needs_changes", "approved", "done", "blocked"}
+	return tool.Func("read_task_board", "Read all tasks as structured data (JSON fields: id, title, description, assignee, status, priority, depends_on, notes, reviewer, deadline). deadline is the target simulation round (0 if unset). Compare with the current round to spot overdue work. Tasks are grouped by status column for readability.").
 		NoParams().
 		Handler(func(_ context.Context, _ map[string]any, state map[string]any) (map[string]any, error) {
 			tb := GetTaskBoard(state)
-			rendered := tb.Render()
-			if rendered == "# Task Board\n\n" {
-				return map[string]any{"content": "No tasks on the board yet."}, nil
+			tasks := tb.SnapshotTasks()
+			byStatus := make(map[string][]Task)
+			for _, t := range tasks {
+				st := t.Status
+				if st == "" {
+					st = "todo"
+				}
+				byStatus[st] = append(byStatus[st], t)
 			}
-			return map[string]any{"content": rendered}, nil
+			columns := make([]map[string]any, 0, len(statusOrder))
+			for _, st := range statusOrder {
+				columns = append(columns, map[string]any{
+					"status": st,
+					"tasks":  byStatus[st],
+				})
+			}
+			return map[string]any{
+				"status_column_order": statusOrder,
+				"columns":             columns,
+				"tasks":               tasks,
+			}, nil
 		}).
 		Build()
 }

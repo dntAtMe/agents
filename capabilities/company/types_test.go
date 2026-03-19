@@ -18,12 +18,9 @@ func TestTaskBoard_AddAndRender(t *testing.T) {
 		t.Errorf("expected TASK-002, got %s", id2)
 	}
 
-	rendered := tb.Render()
-	if !strings.Contains(rendered, "TASK-001") {
-		t.Error("render should contain TASK-001")
-	}
-	if !strings.Contains(rendered, "TODO") {
-		t.Error("render should contain TODO status")
+	tasks := tb.SnapshotTasks()
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
 	}
 }
 
@@ -35,12 +32,12 @@ func TestTaskBoard_Update(t *testing.T) {
 		t.Fatalf("update failed: %v", err)
 	}
 
-	rendered := tb.Render()
-	if !strings.Contains(rendered, "IN_PROGRESS") {
-		t.Error("render should contain IN_PROGRESS")
+	tasks := tb.SnapshotTasks()
+	if len(tasks) != 1 || tasks[0].Status != "in_progress" {
+		t.Fatalf("expected in_progress: %+v", tasks)
 	}
-	if !strings.Contains(rendered, "started work") {
-		t.Error("render should contain notes")
+	if tasks[0].Notes != "started work" {
+		t.Error("notes not saved")
 	}
 
 	// Update to awaiting_review
@@ -48,9 +45,9 @@ func TestTaskBoard_Update(t *testing.T) {
 		t.Fatalf("update failed: %v", err)
 	}
 
-	rendered = tb.Render()
-	if !strings.Contains(rendered, "AWAITING_REVIEW") {
-		t.Error("render should contain AWAITING_REVIEW")
+	tasks = tb.SnapshotTasks()
+	if len(tasks) != 1 || tasks[0].Status != "awaiting_review" {
+		t.Fatalf("expected awaiting_review: %+v", tasks)
 	}
 }
 
@@ -58,6 +55,31 @@ func TestTaskBoard_UpdateNotFound(t *testing.T) {
 	tb := NewTaskBoard()
 	if err := tb.Update("TASK-999", "done", ""); err == nil {
 		t.Error("expected error for non-existent task")
+	}
+}
+
+func TestTaskBoard_JSONRoundTrip(t *testing.T) {
+	tb := NewTaskBoard()
+	tb.Add("A", "desc", "be", "high", "", 5, "")
+	tb.Add("B", "d2", "fe", "", "", 0, "")
+
+	raw, err := tb.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := TaskBoardFromJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks := loaded.SnapshotTasks()
+	if len(tasks) != 2 {
+		t.Fatalf("tasks: %d", len(tasks))
+	}
+	if tasks[0].ID != "TASK-001" || tasks[1].ID != "TASK-002" {
+		t.Fatalf("ids: %+v", tasks)
+	}
+	if tasks[0].Deadline != 5 || tasks[1].Deadline != 0 {
+		t.Fatalf("deadlines: %+v, %+v", tasks[0], tasks[1])
 	}
 }
 

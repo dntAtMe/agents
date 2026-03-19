@@ -13,6 +13,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -123,6 +124,12 @@ func main() {
 	if err := company.InitWorkspace(workspaceRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "Workspace init error: %v\n", err)
 		os.Exit(1)
+	}
+
+	taskBoard, err := company.LoadTaskBoardFromWorkspace(workspaceRoot)
+	if err != nil {
+		log.Printf("load tasks.json: %v (using empty task board)", err)
+		taskBoard = company.NewTaskBoard()
 	}
 
 	// Initialize tracer
@@ -402,6 +409,20 @@ func main() {
 					},
 				}
 			}
+
+			// Push structured tasks to TUI when tools sync shared/tasks.json
+			if fc.Name == "add_task" || fc.Name == "update_task" || fc.Name == "write_review" || fc.Name == "submit_code_review" {
+				if _, hasErr := result["error"]; !hasErr {
+					tb := company.GetTaskBoard(hc.State)
+					payload, err := json.Marshal(map[string]any{"tasks": tb.SnapshotTasks()})
+					if err == nil {
+						events <- tui.Event{
+							Type: "task_board_update",
+							Data: map[string]any{"tasks_json": string(payload)},
+						}
+					}
+				}
+			}
 			return nil
 		},
 	}
@@ -427,6 +448,7 @@ func main() {
 		company.KeyFiredAgents:  map[string]bool{},
 		company.KeyActionPoints: apTracker,
 		company.KeyStockPrice:   stockTracker,
+		company.KeyTasks:        taskBoard,
 	}
 
 	// Store renderers as closures
@@ -628,9 +650,10 @@ func main() {
 					Add(identityMixin).
 					Add(personalityMixin).
 					Add(prompt.ToolUsage(
-						"Use add_task to create tasks — ALWAYS set a deadline. Use the reviewer param to assign a reviewer (e.g. 'architect', 'cto'). "+
+						"Use add_task to create tasks — set deadline to the simulation round when work must be done (0 if none). "+
+							"Use the reviewer param to assign a reviewer (e.g. 'architect', 'cto'). "+
 							"Use update_task to change statuses. "+
-							"Use read_task_board to review current state and check for overdue tasks. "+
+							"Use read_task_board for structured tasks including deadlines (also persisted under shared/tasks.json). "+
 							"Use post_update to announce sprint status. "+
 							"Use send_email with urgent=true to chase developers on overdue or stalled tasks. "+
 							meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction)).
@@ -658,7 +681,7 @@ func main() {
 					Add(identityMixin).
 					Add(personalityMixin).
 					Add(prompt.ToolUsage(
-						"Use read_task_board to find your assigned tasks. "+
+						"Use read_task_board to find your assigned tasks and their deadline rounds. "+
 							"Use write_file for plans and source code. "+
 							"Use read_file to check architect reviews. "+
 							"Use update_task to change task status. "+
@@ -868,7 +891,7 @@ func main() {
 	log.SetOutput(os.NewFile(0, os.DevNull))
 
 	// Run TUI
-	p := tea.NewProgram(tui.New(events, pauseCh, resumeCh, injectCh), tea.WithAltScreen())
+	p := tea.NewProgram(tui.New(events, pauseCh, resumeCh, injectCh, workspaceRoot), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
@@ -909,7 +932,7 @@ func main() {
 		fmt.Println("  shared/prd.md          — Product Requirements")
 		fmt.Println("  shared/architecture.md — Technical Architecture")
 		fmt.Println("  shared/decisions.md    — Decision Records")
-		fmt.Println("  shared/task_board.md   — Task Board")
+		fmt.Println("  shared/tasks.json      — Task board (structured JSON)")
 		fmt.Println("  shared/updates.md      — Team Updates")
 		fmt.Println("  shared/meetings/       — Meeting Transcripts")
 		fmt.Println("  shared/interviews/     — Interview Transcripts")

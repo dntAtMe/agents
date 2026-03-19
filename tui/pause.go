@@ -251,8 +251,8 @@ func (m *Model) sendComposedEmail() tea.Cmd {
 
 func (m *Model) renderPauseOverlay() string {
 	w := m.width
-	if w < 40 {
-		w = 40
+	if w < 1 {
+		w = 1
 	}
 
 	var sections []string
@@ -413,8 +413,8 @@ func (m *Model) renderStateView() string {
 
 	var lines []string
 	maxWidth := m.width - 8 // Account for border and padding
-	if maxWidth < 40 {
-		maxWidth = 40
+	if maxWidth < 1 {
+		maxWidth = 1
 	}
 
 	for _, name := range m.agents {
@@ -472,6 +472,9 @@ func (m *Model) renderStateView() string {
 	maxScroll := len(lines) - maxVisible
 	if maxScroll < 0 {
 		maxScroll = 0
+	}
+	if m.stateScroll < 0 {
+		m.stateScroll = 0
 	}
 	if m.stateScroll > maxScroll {
 		m.stateScroll = maxScroll

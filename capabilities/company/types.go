@@ -1,9 +1,11 @@
 package company
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,7 +21,7 @@ type Task struct {
 	Priority    string `json:"priority"`
 	DependsOn   string `json:"depends_on,omitempty"`
 	Notes       string `json:"notes,omitempty"`
-	Deadline    int    `json:"deadline,omitempty"` // round by which this task should be done (0 = no deadline)
+	Deadline    int    `json:"deadline,omitempty"` // simulation round by which the task should be done (0 = none)
 	Reviewer    string `json:"reviewer,omitempty"`
 }
 
@@ -86,43 +88,60 @@ func (tb *TaskBoard) Update(id, status, notes string) error {
 	return fmt.Errorf("task %q not found", id)
 }
 
-// Render produces a markdown representation of the task board grouped by status.
-func (tb *TaskBoard) Render() string {
+// taskBoardJSON is the on-disk / wire shape for shared/tasks.json.
+type taskBoardJSON struct {
+	Tasks   []Task `json:"tasks"`
+	Counter int    `json:"counter"`
+}
+
+// SnapshotTasks returns a shallow copy of tasks for TUI or tool output.
+func (tb *TaskBoard) SnapshotTasks() []Task {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
+	out := make([]Task, len(tb.Tasks))
+	copy(out, tb.Tasks)
+	return out
+}
 
-	statusOrder := []string{"todo", "in_progress", "awaiting_review", "needs_changes", "approved", "done", "blocked"}
-	grouped := make(map[string][]Task)
-	for _, t := range tb.Tasks {
-		grouped[t.Status] = append(grouped[t.Status], t)
-	}
+// MarshalJSON exports the full board including the ID counter.
+func (tb *TaskBoard) MarshalJSON() ([]byte, error) {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+	return json.Marshal(taskBoardJSON{Tasks: tb.Tasks, Counter: tb.counter})
+}
 
-	var sb strings.Builder
-	sb.WriteString("# Task Board\n\n")
-	for _, s := range statusOrder {
-		tasks := grouped[s]
-		if len(tasks) == 0 {
-			continue
-		}
-		sb.WriteString(fmt.Sprintf("## %s\n\n", strings.ToUpper(s)))
-		for _, t := range tasks {
-			sb.WriteString(fmt.Sprintf("- **%s**: %s (assignee: %s, priority: %s)\n", t.ID, t.Title, t.Assignee, t.Priority))
-			if t.Reviewer != "" {
-				sb.WriteString(fmt.Sprintf("  Reviewer: %s\n", t.Reviewer))
-			}
-			if t.Deadline > 0 {
-				sb.WriteString(fmt.Sprintf("  Deadline: round %d\n", t.Deadline))
-			}
-			if t.Notes != "" {
-				sb.WriteString(fmt.Sprintf("  Notes: %s\n", t.Notes))
-			}
-			if t.DependsOn != "" {
-				sb.WriteString(fmt.Sprintf("  Depends on: %s\n", t.DependsOn))
-			}
-		}
-		sb.WriteString("\n")
+// TaskBoardFromJSON loads a task board from JSON bytes (shared/tasks.json).
+func TaskBoardFromJSON(data []byte) (*TaskBoard, error) {
+	var raw taskBoardJSON
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
 	}
-	return sb.String()
+	tb := NewTaskBoard()
+	tb.mu.Lock()
+	tb.Tasks = raw.Tasks
+	if raw.Counter > 0 {
+		tb.counter = raw.Counter
+	} else {
+		for _, t := range tb.Tasks {
+			if n, ok := parseTaskCounter(t.ID); ok && n > tb.counter {
+				tb.counter = n
+			}
+		}
+	}
+	tb.mu.Unlock()
+	return tb, nil
+}
+
+func parseTaskCounter(id string) (int, bool) {
+	const p = "TASK-"
+	if !strings.HasPrefix(id, p) {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(id, p))
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // Decision represents an architectural decision record.
