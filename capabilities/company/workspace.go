@@ -56,7 +56,8 @@ func InitWorkspace(root string) error {
 		"shared/prd.md":          "# Product Requirements Document\n\n*Not yet written.*\n",
 		"shared/architecture.md": "# Technical Architecture\n\n*Not yet written.*\n",
 		"shared/decisions.md":    "# Architectural Decision Records\n\n*No decisions yet.*\n",
-		TasksJSONRelPath: `{"tasks":[],"counter":0}` + "\n",
+		"shared/company.md":      "# Company Thesis\n\n*Not defined yet.*\n",
+		TasksJSONRelPath:         `{"tasks":[],"counter":0}` + "\n",
 		"shared/updates.md":      "# Updates\n\n*No updates yet.*\n",
 		"shared/escalations.md":  "# Escalations\n\nNo escalations filed.\n",
 		"shared/pips.md":         "# Performance Improvement Plans (PiP)\n\nNo PiP records.\n",
@@ -135,6 +136,14 @@ func SyncTaskBoard(root string, tb *TaskBoard) error {
 func SyncDecisions(root string, dl *DecisionLog) error {
 	content := dl.Render()
 	return os.WriteFile(filepath.Join(root, "shared", "decisions.md"), []byte(content), 0o644)
+}
+
+// SyncCompanyThesis writes the current thesis to shared/company.md.
+func SyncCompanyThesis(root string, thesis *CompanyThesis) error {
+	if thesis == nil {
+		thesis = NewCompanyThesis()
+	}
+	return os.WriteFile(filepath.Join(root, "shared", "company.md"), []byte(thesis.Render()), 0o644)
 }
 
 // SyncUpdates writes the current updates to shared/updates.md.

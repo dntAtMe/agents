@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"google.golang.org/genai"
@@ -65,6 +66,64 @@ func (g *GeminiProvider) GenerateContent(
 	}
 
 	return fromGenaiResponse(resp), nil
+}
+
+// GoogleSearch runs a grounded Google Search query and returns a concise summary
+// plus the cited web sources used by Gemini.
+func (g *GeminiProvider) GoogleSearch(ctx context.Context, model string, query string) (*GoogleSearchResult, error) {
+	if model == "" {
+		model = g.defaultModel
+	}
+
+	temperature := float32(0.2)
+	config := &genai.GenerateContentConfig{
+		Temperature: &temperature,
+		Tools: []*genai.Tool{
+			{GoogleSearch: &genai.GoogleSearch{}},
+		},
+	}
+	if modelSupportsThinking(model) {
+		budget := int32(0)
+		config.ThinkingConfig = &genai.ThinkingConfig{
+			ThinkingBudget: &budget,
+		}
+	}
+
+	resp, err := g.inner.Models.GenerateContent(ctx, model, genai.Text(query), config)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &GoogleSearchResult{
+		Summary: strings.TrimSpace(resp.Text()),
+	}
+
+	if len(resp.Candidates) == 0 || resp.Candidates[0] == nil || resp.Candidates[0].GroundingMetadata == nil {
+		return result, nil
+	}
+
+	meta := resp.Candidates[0].GroundingMetadata
+	if len(meta.WebSearchQueries) > 0 {
+		result.SearchQueries = slices.Clone(meta.WebSearchQueries)
+	}
+
+	seen := make(map[string]bool)
+	for _, chunk := range meta.GroundingChunks {
+		if chunk == nil || chunk.Web == nil || chunk.Web.URI == "" {
+			continue
+		}
+		if seen[chunk.Web.URI] {
+			continue
+		}
+		seen[chunk.Web.URI] = true
+		result.Sources = append(result.Sources, GoogleSearchSource{
+			Title:  strings.TrimSpace(chunk.Web.Title),
+			URL:    chunk.Web.URI,
+			Domain: strings.TrimSpace(chunk.Web.Domain),
+		})
+	}
+
+	return result, nil
 }
 
 // --- Conversion: llm -> genai ---

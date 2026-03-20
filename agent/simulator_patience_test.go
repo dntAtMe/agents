@@ -55,3 +55,25 @@ func TestBuildActivationPromptIncludesPatience(t *testing.T) {
 		t.Fatalf("expected patience tier description in prompt, got: %s", prompt)
 	}
 }
+
+func TestBuildActivationPromptIncludesCompanyContext(t *testing.T) {
+	state := map[string]any{
+		"company_context_renderer": func(agentName string) string {
+			if agentName == "ceo" {
+				return "Company thesis: Signal Forge"
+			}
+			return ""
+		},
+		"company_phase":      "founder_discovery",
+		"founder_max_rounds": 10,
+	}
+
+	prompt := buildActivationPrompt("ceo", 3, 2, 80, state)
+
+	if !strings.Contains(prompt, "Company thesis: Signal Forge") {
+		t.Fatalf("expected company context in prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "Founder discovery status:") {
+		t.Fatalf("expected founder discovery guidance in prompt, got: %s", prompt)
+	}
+}

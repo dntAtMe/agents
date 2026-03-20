@@ -5,8 +5,9 @@
 // Or with Ollama: LLM_PROVIDER=ollama OLLAMA_MODEL=llama3.1 go run ./examples/company "Build a simple todo REST API"
 //
 // Flags:
-//   --thinking     Enable thinking/reasoning mode for all agents (shows internal reasoning)
-//   --tool-only    Force all agents to use tool-only mode (function calls only, no text generation)
+//
+//	--thinking     Enable thinking/reasoning mode for all agents (shows internal reasoning)
+//	--tool-only    Force all agents to use tool-only mode (function calls only, no text generation)
 //
 // Example: GEMINI_API_KEY=... go run ./examples/company --thinking --tool-only "Build a todo API"
 package main
@@ -118,6 +119,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Provider error: %v\n", err)
 		os.Exit(1)
 	}
+	if _, ok := provider.(llm.GoogleSearchProvider); !ok {
+		fmt.Fprintln(os.Stderr, "Provider error: founder discovery requires the Gemini provider because google_search is not available on this backend")
+		os.Exit(1)
+	}
 
 	// Initialize workspace
 	workspaceRoot, _ := filepath.Abs("workspace")
@@ -209,6 +214,12 @@ func main() {
 		"backend-dev, frontend-dev, devops. Hire strategically — a candidate's true personality " +
 		"is hidden, so judge carefully from their interview responses."
 
+	founderInstruction := "During founder discovery, your job is to figure out what startup this company should create. " +
+		"Use google_search to research market opportunities, customer pain points, competitors, and trends. " +
+		"Use update_company_thesis to keep shared/company.md current with the company name, purpose, goal, values, assumptions, target user/problem, and strategy. " +
+		"Use finalize_company_thesis once the thesis is strong enough to unlock execution mode early. " +
+		"Do not start hiring during founder discovery."
+
 	// --- Assign CEO personality only at startup ---
 	ceoPersonalities := company.AssignPersonalities([]string{"ceo"})
 	shareholderTemperament := company.AssignShareholderTemperament()
@@ -254,6 +265,10 @@ func main() {
 	addReviewComment := company.AddReviewCommentTool()
 	submitCodeReview := company.SubmitCodeReviewTool()
 	readCodeReviews := company.ReadCodeReviewsTool()
+	googleSearch := company.GoogleSearchTool()
+	readCompanyThesis := company.ReadCompanyThesisTool()
+	updateCompanyThesis := company.UpdateCompanyThesisTool()
+	finalizeCompanyThesis := company.FinalizeCompanyThesisTool()
 
 	// --- Register only CEO and shareholders at startup ---
 	registry := agent.NewRegistry()
@@ -279,7 +294,8 @@ func main() {
 					"Delegate to project-manager for task breakdown and tracking. "+
 					"You can change project direction mid-stream if needed.")).
 			Add(prompt.ToolUsage(
-				hiringInstruction+"\n"+
+				founderInstruction+"\n"+
+					hiringInstruction+"\n"+
 					meetingEmailInstruction+"\n"+relationshipInstruction+"\n"+managerEscalationInstruction+"\n"+ceoFireInstruction)).
 			Add(prompt.Context(contextInstruction)).
 			Add(prompt.Guardrails(diaryInstruction+"\n"+idleInstruction+"\n"+energyInstruction))).
@@ -292,6 +308,10 @@ func main() {
 			company.ReadUpdatesTool(),
 			company.ReadDecisionsTool(),
 			company.WriteDiaryTool(),
+			googleSearch,
+			readCompanyThesis,
+			updateCompanyThesis,
+			finalizeCompanyThesis,
 
 			sendEmail,
 			checkInbox,
@@ -355,6 +375,9 @@ func main() {
 			}
 
 			agentName := company.GetCurrentAgent(hc.State)
+			if !company.IsToolAllowedInCompanyPhase(hc.State, agentName, fc.Name) {
+				return fmt.Errorf("TOOL RESTRICTED: %s is not available during founder discovery", fc.Name)
+			}
 			cost := company.GetToolCost(fc.Name)
 			remaining := apTracker.Remaining(agentName)
 
@@ -440,16 +463,20 @@ func main() {
 	agentOrder := []string{"ceo", "shareholders"}
 
 	initialState := map[string]any{
-		"workspace_root":        workspaceRoot,
-		"project_name":          userPrompt,
-		"agent_order":           agentOrder,
-		"tool_only_mode":        *toolOnlyMode,
-		company.KeyOrgHierarchy: orgHierarchy,
-		company.KeyFiredAgents:  map[string]bool{},
-		company.KeyActionPoints: apTracker,
-		company.KeyStockPrice:   stockTracker,
-		company.KeyTasks:        taskBoard,
+		"workspace_root":            workspaceRoot,
+		"project_name":              userPrompt,
+		"agent_order":               agentOrder,
+		"tool_only_mode":            *toolOnlyMode,
+		company.KeyOrgHierarchy:     orgHierarchy,
+		company.KeyFiredAgents:      map[string]bool{},
+		company.KeyActionPoints:     apTracker,
+		company.KeyStockPrice:       stockTracker,
+		company.KeyTasks:            taskBoard,
+		company.KeyCompanyPhase:     company.CompanyPhaseFounderDiscovery,
+		company.KeyFounderMaxRounds: 10,
+		company.KeyCompanyThesis:    company.NewCompanyThesis(),
 	}
+	_ = company.SyncCompanyThesis(workspaceRoot, company.GetCompanyThesis(initialState))
 
 	// Store renderers as closures
 	initialState["relationship_renderer"] = func(agentName string) string {
@@ -476,6 +503,22 @@ func main() {
 		}
 		return "📈 " + stockTracker.RenderBrief() + "\n" +
 			"Use check_stock_price for detailed history. The shareholders assess performance each round."
+	}
+
+	initialState["company_context_renderer"] = func(agentName string) string {
+		if agentName != "ceo" {
+			return ""
+		}
+		thesis := company.GetCompanyThesis(initialState)
+		var sb strings.Builder
+		if company.IsFounderDiscoveryPhase(initialState) {
+			sb.WriteString("Founder discovery is active. Define the company before hiring.\n")
+			sb.WriteString(fmt.Sprintf("Original user request: %s\n\n", userPrompt))
+		} else {
+			sb.WriteString("Execution mode is active. This thesis is the company baseline.\n\n")
+		}
+		sb.WriteString(thesis.Render())
+		return sb.String()
 	}
 
 	// Team roster renderer
@@ -513,6 +556,26 @@ func main() {
 			return "ENVIRONMENT: You are conducting a job interview."
 		default:
 			return "ENVIRONMENT: You are at your desk in the office."
+		}
+	}
+
+	initialState[company.KeyActivateExecutionMode] = func(reason string) {
+		currentOrder, _ := initialState["agent_order"].([]string)
+		hasShareholders := false
+		for _, name := range currentOrder {
+			if name == "shareholders" {
+				hasShareholders = true
+				break
+			}
+		}
+		if !hasShareholders {
+			currentOrder = append(currentOrder, "shareholders")
+			initialState["agent_order"] = currentOrder
+		}
+		if reason != "" {
+			ul := company.GetUpdateLog(initialState)
+			ul.Post(company.GetCurrentRound(initialState), "ceo", "general", "Founder phase complete: "+reason)
+			_ = company.SyncUpdates(workspaceRoot, ul)
 		}
 	}
 
@@ -822,6 +885,7 @@ func main() {
 			}
 		},
 		OnInitRound: func(round int, agents []string, state map[string]any) {
+			company.AdvanceFounderPhase(state)
 			// Use dynamic agent order
 			if dynamicOrder, ok := state["agent_order"].([]string); ok {
 				agents = dynamicOrder

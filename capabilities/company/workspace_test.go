@@ -16,6 +16,7 @@ func TestInitWorkspace(t *testing.T) {
 
 	// Check shared files exist
 	for _, f := range []string{
+		"shared/company.md",
 		"shared/prd.md",
 		"shared/architecture.md",
 		"shared/decisions.md",

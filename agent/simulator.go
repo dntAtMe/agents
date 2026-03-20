@@ -11,10 +11,13 @@ import (
 )
 
 const (
-	stateKeyAgentPatience = "agent_patience" // map[agentName]patience(0-100)
-	defaultPatience       = 100
-	minPatience           = 0
-	maxPatience           = 100
+	stateKeyAgentPatience        = "agent_patience" // map[agentName]patience(0-100)
+	defaultPatience              = 100
+	minPatience                  = 0
+	maxPatience                  = 100
+	stateKeyCompanyPhase         = "company_phase"
+	stateKeyFounderMaxRounds     = "founder_max_rounds"
+	companyPhaseFounderDiscovery = "founder_discovery"
 )
 
 // SimRuntime holds the runtime dependencies needed by tools (like urgent emails)
@@ -30,16 +33,16 @@ type SimRuntime struct {
 
 // SimulationConfig controls the simulation loop.
 type SimulationConfig struct {
-	MaxRounds    int                                   // default 15
-	InitialState map[string]any                        // shared state
-	AgentOrder   []string                              // activation order per round
-	OnRoundEnd      func(round int, state map[string]any) // optional callback
+	MaxRounds       int                                                        // default 15
+	InitialState    map[string]any                                             // shared state
+	AgentOrder      []string                                                   // activation order per round
+	OnRoundEnd      func(round int, state map[string]any)                      // optional callback
 	OnBetweenRounds func(ctx context.Context, round int, state map[string]any) // runs after OnRoundEnd, before next round
 
 	// Pause support — optional. If PauseCh is set, the simulation checks for
 	// pause signals after each agent completion and between rounds.
-	PauseCh  chan struct{}                              // TUI sends to request pause
-	ResumeCh chan struct{}                              // TUI sends to resume after pause
+	PauseCh  chan struct{}                                         // TUI sends to request pause
+	ResumeCh chan struct{}                                         // TUI sends to resume after pause
 	OnPause  func(round int, agentIndex int, state map[string]any) // called when pause triggers
 
 	// Tracing callbacks — all optional.
@@ -205,7 +208,24 @@ func Simulate(
 		}
 	}
 
-	if hiringMode {
+	if phase, _ := state[stateKeyCompanyPhase].(string); phase == companyPhaseFounderDiscovery {
+		founderMaxRounds := 10
+		if v, ok := state[stateKeyFounderMaxRounds].(int); ok && v > 0 {
+			founderMaxRounds = v
+		}
+		bootstrapConv.AppendUserText(fmt.Sprintf(
+			"[System: Round 0 - Founder Discovery. You are the CEO. Your first job is to decide what startup to create.]\n\n"+
+				"User Request: %s\n\n"+
+				"You are currently the only active employee. Do not start hiring yet. "+
+				"Use google_search to investigate markets and opportunities. "+
+				"Use update_company_thesis to define the company name, purpose, goal, values, assumptions, target user/problem, and strategy.\n\n"+
+				"Founder discovery is scheduled through round %d unless you finish earlier. "+
+				"If the thesis becomes strong enough before then, use finalize_company_thesis to unlock execution mode and begin hiring.\n\n"+
+				"Keep shared/company.md current because it becomes the baseline context for the company.",
+			userPrompt,
+			founderMaxRounds-1,
+		))
+	} else if hiringMode {
 		bootstrapConv.AppendUserText(fmt.Sprintf(
 			"[System: Round 0 — Bootstrap. You are the CEO. A new project has been requested.]\n\n"+
 				"User Request: %s\n\n"+
@@ -239,6 +259,11 @@ func Simulate(
 			"as patience drops, be more direct, push harder on blockers, and escalate sooner.",
 		bootstrapPatience, patienceTier(bootstrapPatience),
 	))
+	if renderer, ok := state["company_context_renderer"].(func(string) string); ok {
+		if companyContext := renderer("ceo"); companyContext != "" {
+			bootstrapConv.AppendUserText("\nCurrent company context:\n" + companyContext)
+		}
+	}
 
 	bootstrapResult, err := runAgentWithHandoffs(ctx, predictor, provider, registry, ceoAgent, bootstrapConv, state)
 	if err != nil {
@@ -282,6 +307,10 @@ func Simulate(
 		allIdle := true
 
 		for agentIdx, agentName := range agentOrder {
+			if phase, _ := state[stateKeyCompanyPhase].(string); phase == companyPhaseFounderDiscovery && agentName != "ceo" {
+				continue
+			}
+
 			// Skip fired agents
 			if fired, ok := state["fired_agents"].(map[string]bool); ok && fired[agentName] {
 				log.Printf("[Simulation] %s is fired, skipping", agentName)
@@ -467,6 +496,22 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 		sb.WriteString("This may be your first activation — read updates to understand the current state.\n")
 	}
 
+	if agentName == "ceo" && state[stateKeyCompanyPhase] == companyPhaseFounderDiscovery {
+		founderMaxRounds := 10
+		if v, ok := state[stateKeyFounderMaxRounds].(int); ok && v > 0 {
+			founderMaxRounds = v
+		}
+		remaining := founderMaxRounds - round
+		if remaining < 0 {
+			remaining = 0
+		}
+		sb.WriteString("\nFounder discovery status:\n")
+		sb.WriteString("- Use google_search and the company thesis tools to determine what startup to build.\n")
+		sb.WriteString("- Do not hire yet. Hiring unlocks only after founder discovery ends.\n")
+		sb.WriteString(fmt.Sprintf("- Founder discovery target window: rounds 0-%d.\n", founderMaxRounds-1))
+		sb.WriteString(fmt.Sprintf("- Remaining scheduled discovery rounds before automatic execution unlock: %d.\n", remaining))
+	}
+
 	toolOnlyMode, _ := state["tool_only_mode"].(bool)
 	if toolOnlyMode {
 		sb.WriteString("\nWhen you are done with your turn, call end_turn with status='done' and a summary.\n")
@@ -479,6 +524,13 @@ func buildActivationPrompt(agentName string, round, lastRound, patience int, sta
 		patience, patienceTier(patience),
 	))
 	sb.WriteString("Let this affect your behavior: as patience drops, be more direct, less accommodating, and quicker to escalate blockers.\n")
+	if renderer, ok := state["company_context_renderer"].(func(string) string); ok {
+		if companyContext := renderer(agentName); companyContext != "" {
+			sb.WriteString("\nCompany context:\n")
+			sb.WriteString(companyContext)
+			sb.WriteString("\n")
+		}
+	}
 	// Inject last diary entry for memory continuity
 	if diaryRenderer, ok := state["diary_renderer"].(func(string) string); ok {
 		if lastDiary := diaryRenderer(agentName); lastDiary != "" {

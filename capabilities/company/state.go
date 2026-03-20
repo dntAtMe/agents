@@ -2,32 +2,36 @@ package company
 
 // State keys used throughout the company simulation.
 const (
-	KeyWorkspaceRoot  = "workspace_root"
-	KeyCurrentAgent   = "current_agent"
-	KeyCurrentRound   = "current_round"
-	KeyProjectName    = "project_name"
-	KeyProjectStatus  = "project_status"
-	KeyTasks          = "tasks"
-	KeyDecisions      = "decisions"
-	KeyUpdates        = "updates"
-	KeyAgentLastRound = "agent_last_round"
-	KeySimRuntime     = "sim_runtime"
-	KeyEmails         = "emails"
-	KeyMeetings       = "meetings"
-	KeyRelationships  = "relationships"
-	KeyEscalations    = "escalations"
-	KeyPIPs           = "pips"
-	KeyFirings        = "firings"
-	KeyOrgHierarchy   = "org_hierarchy"
-	KeyFiredAgents    = "fired_agents"
-	KeyCodeReviews    = "code_reviews"
-	KeyFileSnapshots  = "file_snapshots"
-	KeyCommandLog     = "command_log"
-	KeyActionPoints   = "action_points"
-	KeyStockPrice        = "stock_price"
-	KeyInterviews        = "interviews"
-	KeyHiredAgents       = "hired_agents"
-	KeyAgentEnvironment  = "agent_environment"
+	KeyWorkspaceRoot         = "workspace_root"
+	KeyCurrentAgent          = "current_agent"
+	KeyCurrentRound          = "current_round"
+	KeyProjectName           = "project_name"
+	KeyProjectStatus         = "project_status"
+	KeyTasks                 = "tasks"
+	KeyDecisions             = "decisions"
+	KeyUpdates               = "updates"
+	KeyAgentLastRound        = "agent_last_round"
+	KeySimRuntime            = "sim_runtime"
+	KeyEmails                = "emails"
+	KeyMeetings              = "meetings"
+	KeyRelationships         = "relationships"
+	KeyEscalations           = "escalations"
+	KeyPIPs                  = "pips"
+	KeyFirings               = "firings"
+	KeyOrgHierarchy          = "org_hierarchy"
+	KeyFiredAgents           = "fired_agents"
+	KeyCodeReviews           = "code_reviews"
+	KeyFileSnapshots         = "file_snapshots"
+	KeyCommandLog            = "command_log"
+	KeyActionPoints          = "action_points"
+	KeyStockPrice            = "stock_price"
+	KeyInterviews            = "interviews"
+	KeyHiredAgents           = "hired_agents"
+	KeyAgentEnvironment      = "agent_environment"
+	KeyCompanyThesis         = "company_thesis"
+	KeyCompanyPhase          = "company_phase"
+	KeyFounderMaxRounds      = "founder_max_rounds"
+	KeyActivateExecutionMode = "activate_execution_mode"
 )
 
 // Environment constants.
@@ -216,6 +220,53 @@ func GetCodeReviewLog(state map[string]any) *CodeReviewLog {
 	cl := NewCodeReviewLog()
 	state[KeyCodeReviews] = cl
 	return cl
+}
+
+// GetCompanyThesis retrieves or creates the company thesis in shared state.
+func GetCompanyThesis(state map[string]any) *CompanyThesis {
+	if v, ok := state[KeyCompanyThesis]; ok {
+		if thesis, ok := v.(*CompanyThesis); ok {
+			return thesis
+		}
+	}
+	thesis := NewCompanyThesis()
+	state[KeyCompanyThesis] = thesis
+	return thesis
+}
+
+// GetCompanyPhase returns the current company lifecycle phase.
+func GetCompanyPhase(state map[string]any) string {
+	if v, ok := state[KeyCompanyPhase].(string); ok && v != "" {
+		return v
+	}
+	return CompanyPhaseExecution
+}
+
+// SetCompanyPhase updates the current company lifecycle phase.
+func SetCompanyPhase(state map[string]any, phase string) {
+	state[KeyCompanyPhase] = phase
+}
+
+// IsFounderDiscoveryPhase reports whether the company is still in founder discovery.
+func IsFounderDiscoveryPhase(state map[string]any) bool {
+	return GetCompanyPhase(state) == CompanyPhaseFounderDiscovery
+}
+
+// GetFounderMaxRounds returns the configured founder discovery round budget.
+func GetFounderMaxRounds(state map[string]any) int {
+	if v, ok := state[KeyFounderMaxRounds]; ok {
+		switch n := v.(type) {
+		case int:
+			if n > 0 {
+				return n
+			}
+		case float64:
+			if n > 0 {
+				return int(n)
+			}
+		}
+	}
+	return 10
 }
 
 // GetFileSnapshotLog retrieves or creates the FileSnapshotLog in shared state.
